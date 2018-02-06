@@ -1,0 +1,82 @@
+// it acts as a humidity sensor to easily show % level in action tiles
+/**
+ * Particle Pool Level Sensor
+ *
+ * Author: Brennon Scuderi
+ *
+ * 
+ *
+ * 
+ */
+
+preferences {
+    input name: "deviceId", type: "text", title: "Device ID", required: true
+    input name: "token", type: "password", title: "Access Token", required: true
+    input name: "TemperatureVar", type: "text", title: "Temperature Variable", required: true, defaultValue: "PoolTemp"
+    }
+
+metadata {
+    definition (name: "Particle Pool Level Sensor", author: "Brennon Scuderi") {
+        capability "Polling"
+        capability "Sensor"
+        capability "Refresh"
+        capability "Temperature Measurement"
+        capability "Relative Humidity Measurement"
+        attribute "temperature", "number"
+    }
+
+    tiles(scale: 2) {
+        valueTile("temperature", "device.humidity", width: 4, height: 4) {
+            state("humidity", label:'${currentValue}%',
+                backgroundColors:[    
+                    [value: 30, color: "#FF0000"],
+                    [value: 35, color: "#FFFF00"],
+                    [value: 50, color: "#7CFC00"],
+                    [value: 100, color: "#008000"],
+                    [value: 130, color: "#006400"]
+                ]
+            )
+        }
+
+      
+        standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
+            state "default", action:"refresh.refresh", icon:"st.secondary.refresh"
+        }
+
+
+    }
+}
+
+// handle commands
+def poll() {
+    log.debug "Executing 'poll'"
+
+    getAll()
+}
+
+def refresh() {
+    log.debug "Executing 'refresh'"
+
+    getAll()
+}
+
+def getAll() {
+    getTemperature()
+    
+}
+
+def parse(String description) {
+    def pair = description.split(":")
+
+    createEvent(name: pair[0].trim(), value: pair[1].trim())
+}
+
+private getTemperature() {
+    def closure = { response ->
+        log.debug "Pool Level request was successful, $response.data"
+
+        sendEvent(name: "humidity", value: response.data.result)
+    }
+
+    httpGet("https://api.particle.io/v1/devices/${deviceId}/${TemperatureVar}?access_token=${token}", closure)
+}
