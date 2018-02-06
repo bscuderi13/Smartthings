@@ -1,0 +1,231 @@
+/**
+ *  Copyright 2015 SmartThings
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+ *  in compliance with the License. You may obtain a copy of the License at:
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
+ *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
+ *  for the specific language governing permissions and limitations under the License.
+ *
+ */
+preferences {
+    input name: "deviceId", type: "text", title: "Device ID", required: true
+    input name: "token", type: "password", title: "Access Token", required: true
+    input name: "RPMVar", type: "text", title: "RPM Variable", required: true, defaultValue: "PumpRPM"
+    input name: "wattVar", type: "text", title: "WATT Variable", required: true, defaultValue: "PowerUse"
+    }
+metadata {
+	definition (name: "Simulated Pool Controller", namespace: "brennonsapps", author: "bscuderi") {
+		capability "Actuator"
+		capability "Button"
+		capability "Sensor"
+        attribute "RPM", "number"
+       	capability "Power Meter"
+        capability "Polling"
+        capability "Refresh"
+        capability "Temperature Measurement"
+        attribute "temperature", "number"
+        capability "Carbon Dioxide Measurement"
+        capability "switch"
+
+        command "push1"
+        command "push2"
+        command "push3"
+        command "push4"
+        command "push5"
+        command "push6"
+        command "push7"
+        command "push8"
+	}
+
+	simulator {
+		status "button 1 pushed":  "command: 2001, payload: 01"
+		status "button 5 pushed":  "command: 2001, payload: 15"
+		status "button 2 pushed":  "command: 2001, payload: 29"
+		status "button 6 pushed":  "command: 2001, payload: 3D"
+		status "button 3 pushed":  "command: 2001, payload: 51"
+		status "button 7 pushed":  "command: 2001, payload: 65"
+		status "button 4 pushed":  "command: 2001, payload: 79"
+		status "button 8 pushed":  "command: 2001, payload: 8D"
+		status "wakeup":  "command: 8407, payload: "
+	}
+	tiles {
+		     
+		 valueTile("RPM", "device.carbonDioxide", width: 1, height: 1) {
+            state("carbonDioxide", label:'${currentValue} RPM')
+        }
+         valueTile("WATT", "device.power", width: 1, height: 1) {
+            state("power", label:'${currentValue} Watts')
+        }
+        
+        standardTile("switch", "device.switch", width: 1, height: 1,  canChangeBackground: true) {
+         		state "on", label: "Auto", action: "switch.off", icon: "st.Health & Wellness.health7", backgroundColor: "#79b821"
+        		state "off", label: "Manual", action: "switch.on", icon: "st.Health & Wellness.health7", backgroundColor: "#ffffff"
+        }
+        standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
+            state "", action:"refresh.refresh", icon:"st.secondary.refresh"
+        }
+
+        standardTile("button", "device.button") {
+			state "default", label: "", icon: "st.unknown.zwave.remote-controller", backgroundColor: "#ffffff"
+		}
+ 		standardTile("push1", "device.button", width: 1, height: 1, decoration: "flat") {
+			state "default", label: "OFF", backgroundColor: "#ffffff", action: "push1"
+		}
+ 		standardTile("push2", "device.button", width: 1, height: 1, decoration: "flat") {
+			state "default", label: "1,000 RPM", backgroundColor: "#ffffff", action: "push2"
+		}
+ 		standardTile("push3", "device.button", width: 1, height: 1, decoration: "flat") {
+			state "default", label: "1,250 RPM", backgroundColor: "#ffffff", action: "push3"
+		}
+ 		standardTile("push4", "device.button", width: 1, height: 1, decoration: "flat") {
+			state "default", label: "1,500 RPM", backgroundColor: "#ffffff", action: "push4"
+		}
+ 			standardTile("push5", "device.button", width: 1, height: 1, decoration: "flat") {
+			state "default", label: "2,000 RPM", backgroundColor: "#ffffff", action: "push5"
+		}
+ 		standardTile("push6", "device.button", width: 1, height: 1, decoration: "flat") {
+			state "default", label: "2,500 RPM", backgroundColor: "#ffffff", action: "push6"
+		}
+ 			standardTile("push7", "device.button", width: 1, height: 1, decoration: "flat") {
+			state "default", label: "3,000 RPM", backgroundColor: "#ffffff", action: "push7"
+		}
+ 		standardTile("push8", "device.button", width: 1, height: 1, decoration: "flat") {
+			state "default", label: "3,450 RPM", backgroundColor: "#ffffff", action: "push8"
+		}
+
+		main (["RPM","WATT","button"])
+		details(["RPM","WATT","switch","push1","push2","push3","push4","push5","push6","push7","push8","refresh"])
+	
+       
+		}
+
+}
+
+def parse(String description) {
+    def pair = description.split(":")
+
+    createEvent(name: pair[0].trim(), value: pair[1].trim())
+}
+
+def push1() {
+    put(0)
+    push(1)
+    refresh()
+}
+
+def push2() {
+	put(1)
+    push(2)
+    refresh()
+}
+
+def push3() {
+	put(2)
+    push(3)
+    refresh()
+}
+
+def push4() {
+    put(3)
+    push(4)
+    refresh()
+}
+
+def push5() {
+	put(4)
+    push(5)
+    refresh()
+}
+
+def push6() {
+	put(5)
+    push(6)
+    refresh()
+}
+
+def push7() {
+	put(6)
+    push(7)
+    refresh()
+}
+
+def push8() {
+	put(7)
+    push(8)
+    refresh()
+}
+
+private push(button) {
+	log.debug "$device.displayName button $button was pushed"
+	sendEvent(name: "button", value: "pushed", data: [buttonNumber: button], descriptionText: "$device.displayName button $button was pushed", isStateChange: true)
+}
+
+
+def installed() {
+	initialize()
+}
+
+def updated() {
+	initialize()
+    // attempted fix
+    log.debug "Updated !"
+    state.RPM = 1    
+    log.debug "device.RPM: ${device.RPM}"
+}
+
+def initialize() {
+	sendEvent(name: "numberOfButtons", value: 8)
+}
+
+
+def poll() {
+    log.debug "Executing 'poll'"
+    getWATT()
+    getRPM()
+}
+
+def refresh() {
+    log.debug "Executing 'refresh'"
+    getWATT()
+    getRPM()
+}
+    
+def on() {
+	sendEvent(name: 'switch', value: 'on')
+}
+
+def off() {
+sendEvent(name: 'switch', value: 'off')
+}
+
+// get pool pump RPM
+private getRPM() {
+    def closure = { response ->
+        log.debug "RPM request was successful, $response.data"
+
+        sendEvent(name: "carbonDioxide", value: response.data.result)
+    }
+
+    httpGet("https://api.particle.io/v1/devices/${deviceId}/${RPMVar}?access_token=${token}", closure)
+}
+private getWATT() {
+    def closure = { response ->
+        log.debug "WATT request was successful, $response.data"
+
+        sendEvent(name: "power", value: response.data.result)
+    }
+
+    httpGet("https://api.particle.io/v1/devices/${deviceId}/${wattVar}?access_token=${token}", closure)
+}
+
+// Send a button push to pump
+private put(button) {
+	httpPost(
+		uri: "https://api.particle.io/v1/devices/${deviceId}/PumpSpeed",
+        body: [access_token: token, command: button],  
+	) {response -> log.debug (response.data)}
+}
