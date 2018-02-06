@@ -188,26 +188,6 @@ def off() {
 	 puts(0)
 }
 
-// get pool pump RPM
-private getRPM() {
-    def closure = { response ->
-        log.debug "RPM request was successful, $response.data"
-
-        sendEvent(name: "carbonDioxide", value: response.data.result)
-    }
-
-    httpGet("https://api.particle.io/v1/devices/${deviceId}/${RPMVar}?access_token=${token}", closure)
-}
-private getWATT() {
-    def closure = { response ->
-        log.debug "WATT request was successful, $response.data"
-
-        sendEvent(name: "power", value: response.data.result)
-    }
-
-    httpGet("https://api.particle.io/v1/devices/${deviceId}/${wattVar}?access_token=${token}", closure)
-}
-
 // Send a button push to photon
 private cchange(button) {
 	httpPost(
