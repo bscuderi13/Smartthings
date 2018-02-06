@@ -1,0 +1,236 @@
+//---------------------------------------------------------------------------
+// Variables and Pin definitions
+//---------------------------------------------------------------------------
+
+// Other Variable types
+volatile unsigned int TPulseCountm = 0;
+volatile unsigned int TPulseCountp = 0;
+
+// pulses per liter of the flow sensorsw
+const float pulsesPerLiter = 477;
+
+// Define Pins
+#define WATER_SENSORm	D5	
+#define WATER_SENSORp	D4	
+#define misteron  D0
+#define misteroff  D1
+#define poolon  D2
+#define pooloff  D3
+
+// Variable Define Intergers
+int totalgm = 0;
+int totalgp = 0;
+int previousgp = 0;
+int mvalvepos = 0;
+int monflag = 0;
+int moffflag = 0;
+int pvalvepos = 0;
+int ponflag = 0;
+int poffflag = 0;
+int voltprotect = 0;
+int autofill = 0;
+float poolLevel = 0;
+int pfull = 125;
+int pLow = 160;
+float gpmm = 13;  //previously 8.33 
+int fillPercent = 0;
+int calcfillamount = 0;
+
+//-----------------------------------------------------------------------------
+// Water Sensor interrupts
+//-----------------------------------------------------------------------------
+
+// Increment the water pulse counter for misters
+void WaterPulseCounterm(void)
+{
+	TPulseCountm++;
+}
+
+// Increment the water pulse counter for pool
+void WaterPulseCounterp(void)
+{
+	TPulseCountp++;
+}
+
+//-------------------------------------------------------------------------------
+// Setup
+//-------------------------------------------------------------------------------
+void setup()
+{
+// Cloud Based Variables  
+  Particle.variable("totalgm", totalgm);
+  Particle.variable("totalgp", totalgp);
+// Set output pins for relays  
+  pinMode(misteron, OUTPUT);
+  pinMode(misteroff, OUTPUT);
+  pinMode(poolon, OUTPUT);
+  pinMode(pooloff, OUTPUT);
+// set pin for voltage detector
+  pinMode(D6, INPUT_PULLDOWN);
+  pinMode(D7, OUTPUT);
+// Set pins to high for all relays off  
+  digitalWrite(misteron, HIGH);
+  digitalWrite(misteroff, HIGH);
+  digitalWrite(poolon, HIGH);
+  digitalWrite(pooloff, HIGH);
+// Set ground pins for volatage detector
+  digitalWrite(D7, LOW);
+// Set Digital pin WATER_SENSOR_PINT to INPUT mode and set
+// interrupt vector (water flow sensor) for FALLING edge interrupt
+  pinMode(WATER_SENSORm, INPUT);
+  pinMode(WATER_SENSORp, INPUT);
+  attachInterrupt(WATER_SENSORm, WaterPulseCounterm, FALLING);
+  attachInterrupt(WATER_SENSORp, WaterPulseCounterp, FALLING);
+// Cloud Based Functions
+  Particle.function("misteron", misteronfunc);
+  Particle.function("poolon", poolonfunc);
+  Particle.subscribe("waterlevel", levelHandler, MY_DEVICES);
+  Particle.variable("PoolLevel", fillPercent);
+  Particle.variable("CalcFill", calcfillamount);
+// time zone
+  Time.zone(-7);
+}
+
+//--------------------------------------------------------------------------------
+// Loop Code
+//--------------------------------------------------------------------------------
+
+void loop()
+{
+// Variable Calculations For Total Gallons  
+  totalgm = ((TPulseCountm / pulsesPerLiter)) / 3.79;
+  totalgp = ((TPulseCountp / pulsesPerLiter)) / 3.79;
+
+// checks if it changed to cue update in smartthings
+  if (totalgp != previousgp){
+    Particle.publish("gallonshose", "refresh", PRIVATE);
+    previousgp = totalgp;
+    }
+  
+// Flags To Activate Relays
+  if (monflag == 1 && mvalvepos == 0) // Misters On
+  {
+    TPulseCountm = 0;
+    digitalWrite(misteroff, HIGH);
+    delay (500);
+    digitalWrite(misteron, LOW);
+    delay (7000);
+    digitalWrite(misteron, HIGH);
+    monflag = 0;
+    mvalvepos = 1;
+  }
+  
+  if (moffflag == 1 && mvalvepos == 1)  // Misters Off
+  {
+    digitalWrite(misteron, HIGH);
+    delay (500);
+    digitalWrite(misteroff, LOW);
+    delay (7000);
+    digitalWrite(misteroff, HIGH);
+    moffflag = 0;
+    mvalvepos = 0;
+  }
+ 
+  if (ponflag == 1 && pvalvepos == 0) // Pool On
+  {
+    TPulseCountp = 0;
+    digitalWrite(pooloff, HIGH);
+    delay (500);
+    digitalWrite(poolon, LOW);
+    delay (7000);
+    digitalWrite(poolon, HIGH);
+    ponflag = 0;
+    pvalvepos = 1;
+  }
+  
+  if (poffflag == 1 && pvalvepos ==1)  // Pool Off
+  {
+    digitalWrite(poolon, HIGH);
+    delay (500);
+    digitalWrite(pooloff, LOW);
+    delay (7000);
+    digitalWrite(pooloff, HIGH);
+    poffflag = 0;
+    pvalvepos = 0;
+    TPulseCountp = 0;
+  }
+  
+  if (totalgp >= calcfillamount && autofill == 1)  // pool auto shutoff at fill amount
+  {
+    poffflag = 1;
+    TPulseCountp = 0;
+    autofill = 0;
+    calcfillamount = 0;
+    fillPercent = 100;
+    Particle.publish("autoshutoff", "on", PRIVATE);
+  }
+// Power Loss On Battery POwer shutiff valves sens message wait and send message when power is restored
+int volt = digitalRead(D6); 
+  if (volt == LOW && voltprotect == 0)
+  {
+      Particle.publish("powerloss", "yes", PRIVATE);
+      voltprotect = 1;
+      if (mvalvepos == 1)
+      {
+      digitalWrite(misteroff, LOW);
+      delay (7000);
+      digitalWrite(misteroff, HIGH);
+      }
+      if (pvalvepos == 1)
+      {
+      digitalWrite(pooloff, LOW);
+      delay (7000);
+      digitalWrite(pooloff, HIGH);
+      }
+  }
+  if (volt == HIGH && voltprotect == 1)
+  {
+      Particle.publish("powerrestored", "yes", PRIVATE);
+      voltprotect = 0;
+  }
+}
+
+//---------------------------------------------------------------------------------
+// Cloud Based Controls
+//---------------------------------------------------------------------------------
+
+int misteronfunc(String command)
+{
+  if (command == "1") 
+    {
+    monflag = 1;
+    return 1;
+    } 
+  else 
+    {               
+    moffflag = 1;
+    return 0;
+    }
+}
+
+int poolonfunc(String command)
+{
+  if (command == "1") 
+    {   
+    ponflag = 1;
+    return 1;
+    } 
+  else 
+    {               
+    poffflag = 1;
+    return 0;
+    }
+}
+// Level Handler
+void levelHandler(const char *event, const char *data)
+{
+poolLevel = atof(data);
+fillPercent = ((((pLow - poolLevel) / (pLow - pfull)) * 100));
+calcfillamount = ((poolLevel - pfull) * gpmm);
+if (calcfillamount >= 60 && calcfillamount <= 200)
+{
+    autofill = 1;
+    ponflag = 1;
+    Particle.publish("poolautofill", "on", PRIVATE);
+}
+}
