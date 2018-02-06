@@ -1,0 +1,79 @@
+metadata {
+	definition (name: "Gardenhose2", namespace: "brennonsapps", author: "bscuderi") {
+		capability "Actuator"
+		capability "Sensor"
+        capability "Polling"
+        capability "Refresh"
+        capability "switch"
+        attribute "gal", "number"
+	}
+
+
+preferences {
+    input("token", "text", title: "Access Token")
+    input("deviceId", "text", title: "Device ID")
+    input name: "GallonsVar", type: "text", title: "Gallons Variable", required: true, defaultValue: "totalgp"
+    }
+ 
+  // tile definitions
+	tiles {
+		standardTile("switch", "device.switch", width: 2, height: 2, canChangeIcon: true) {
+		state "on", label: '${name}', action: "switch.off", icon: "st.switches.switch.on", backgroundColor: "#79b821"
+		state "off", label: '${name}', action: "switch.on", icon: "st.switches.switch.off", backgroundColor: "#ffffff"
+		}
+        valueTile("gal", "device.gal", width: 1, height: 1) {
+            state("gal", label:'${currentValue} G')
+            }
+         standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
+            state "default", action:"refresh.refresh", icon:"st.secondary.refresh"
+            }
+		
+        
+        main "switch"
+		details(["switch", "gal", "refresh"])
+	}
+}
+
+def parse(String description) {
+	log.error "This device does not support incoming events"
+	return null
+}
+
+def on() {
+	put '1'
+    sendEvent(name: 'switch', value: 'on')
+}
+
+def off() {
+	put '0'
+    sendEvent(name: 'switch', value: 'off')
+}
+
+private put(relaystate) {
+    //particle API Call
+	httpPost(
+		uri: "https://api.particle.io/v1/devices/${deviceId}/poolon",
+        body: [access_token: token, command: relaystate],  
+	) {response -> log.debug (response.data)}
+}
+
+private getGallons() {
+    def closure = { response ->
+        log.debug "Gallons request was successful, $response.data"
+
+        sendEvent(name: "gal", value: response.data.result)
+    }
+
+    httpGet("https://api.particle.io/v1/devices/${deviceId}/${GallonsVar}?access_token=${token}", closure)
+}
+
+def updated() {
+    log.debug "Updated !"
+    state.gal = 1    
+    log.debug "device.gal: ${device.gal}"
+}
+
+def refresh() {
+    log.debug "Executing 'refresh'"
+    getGallons()
+}
