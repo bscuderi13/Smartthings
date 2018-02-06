@@ -1,0 +1,161 @@
+// This #include statement was automatically added by the Particle IDE.
+#include <OneWire.h>
+
+
+#include "VL53L0X.h"
+
+VL53L0X sensor;
+
+
+#define HIGH_ACCURACY  // for lidar high accuracy mode
+// Define pins
+#define ppin       D2
+#define tppin      D3
+#define tground    D4
+
+// global variables
+int mm = -777;
+int tries = 0;
+
+// one wire temp variables
+OneWire ds = OneWire(D5);  //** 1-wire signal on pin D5
+unsigned long lastUpdate = 0;
+float lastTemp;
+
+void setup()
+{
+  
+  RGB.control(true);  // take control of the LED
+  RGB.color(0, 0, 0);  // the following sets the RGB LED off:
+  // pinmode
+  pinMode(ppin, OUTPUT);
+  pinMode(tppin, OUTPUT);
+  pinMode(tground, OUTPUT);
+  // turn on the sensors
+  digitalWrite(ppin, HIGH);
+  digitalWrite(tppin, HIGH);
+  // temp sensor ground
+  digitalWrite(tground, LOW);
+  //  Lidar setup
+  Serial.begin(9600);
+  Wire.begin();
+  sensor.init();
+  sensor.setTimeout(500);
+ 
+#if defined HIGH_ACCURACY
+  // increase timing budget to 200 ms
+  sensor.setMeasurementTimingBudget(200000);
+#endif
+}
+
+void loop()
+{
+  //** Temp Probe loop basically all the temperature code copy pasted from the example code from the library
+  delay(1000); // delay one second to allow sensor time to boot before taking a reading this is to eliminate the 185 temp error
+  byte i;
+  byte present = 0;
+  byte type_s;
+  byte data[12];
+  byte addr[8];
+  float celsius, fahrenheit;
+  if ( !ds.search(addr)) {
+    ds.reset_search();
+    delay(250);
+    return;
+  }
+  switch (addr[0]) {
+    case 0x10:
+      type_s = 1;
+      break;
+    case 0x28:
+      type_s = 0;
+      break;
+    case 0x22:
+      type_s = 0;
+      break;
+    case 0x26:
+      type_s = 2;
+      break;
+    default:
+      return;
+  }
+  ds.reset();               
+  ds.select(addr);          
+  ds.write(0x44, 0);        
+  delay(1000);     
+  present = ds.reset();
+  ds.select(addr);
+  ds.write(0xB8,0);         
+  ds.write(0x00,0);         
+  present = ds.reset();
+  ds.select(addr);
+  ds.write(0xBE,0);         
+  if (type_s == 2) {
+    ds.write(0x00,0);       
+  }
+  for ( i = 0; i < 9; i++) {           
+    data[i] = ds.read();
+    }
+  int16_t raw = (data[1] << 8) | data[0];
+  if (type_s == 2) raw = (data[2] << 8) | data[1];
+  byte cfg = (data[4] & 0x60);
+  switch (type_s) {
+    case 1:
+      raw = raw << 3; 
+      if (data[7] == 0x10) {
+        raw = (raw & 0xFFF0) + 12 - data[6];
+      }
+      celsius = (float)raw * 0.0625;
+      break;
+    case 0:
+      
+      if (cfg == 0x00) raw = raw & ~7;  // 9 bit resolution, 93.75 ms
+      if (cfg == 0x20) raw = raw & ~3; // 10 bit res, 187.5 ms
+      if (cfg == 0x40) raw = raw & ~1; // 11 bit res, 375 ms
+      celsius = (float)raw * 0.0625;
+      break;
+    case 2:
+      data[1] = (data[1] >> 3) & 0x1f;
+      if (data[2] > 127) {
+        celsius = (float)data[2] - ((float)data[1] * .03125);
+      }else{
+        celsius = (float)data[2] + ((float)data[1] * .03125);
+      }
+  }
+  if((((celsius <= 0 && celsius > -1) && lastTemp > 5)) || celsius > 125) {
+      celsius = lastTemp;
+  }
+  fahrenheit = celsius * 1.8 + 32.0;
+  lastTemp = celsius;
+  String ptemp = String(fahrenheit);
+ 
+ // LIDAR take a reading
+  mm = sensor.readRangeSingleMillimeters();
+
+ // Publish the results and shutoff sensors if you get good data
+  if(mm > 75 && mm < 2000 && fahrenheit != 185)
+  {
+  digitalWrite(ppin, LOW);
+  digitalWrite(tppin, LOW);
+  Particle.publish("CurrentTemperature", ptemp, PRIVATE);
+  delay (2000);
+  Particle.publish("waterlevel" , String(mm), PRIVATE);
+  delay (2000);
+  System.sleep(SLEEP_MODE_DEEP, 14400);
+  }
+  else
+  {
+  tries++;  // track failed attempts
+  }
+  // if it fails to get a good level after 4 tries send an error message and sleep anyways
+  if (tries == 4)
+  {
+  digitalWrite(ppin, LOW);
+  digitalWrite(tppin, LOW);
+  Particle.publish("failwaterlevel" , "true", PRIVATE);
+  delay (2000);
+  System.sleep(SLEEP_MODE_DEEP, 14400);
+  }
+}
+
+
