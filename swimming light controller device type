@@ -1,0 +1,225 @@
+/**
+ *  Copyright 2015 SmartThings
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+ *  in compliance with the License. You may obtain a copy of the License at:
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
+ *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
+ *  for the specific language governing permissions and limitations under the License.
+ *
+ */
+preferences {
+    input name: "deviceId", type: "text", title: "Device ID", required: true
+    input name: "token", type: "password", title: "Access Token", required: true
+    input name: "LightVar", type: "text", title: "Light Function", required: true, defaultValue: "poollight"
+    input name: "changeVar", type: "text", title: "Color Change", required: true, defaultValue: "colorchange"
+    }
+
+metadata {
+	definition (name: "Swimming Light Controller", namespace: "brennonsapps", author: "bscuderi") {
+		capability "Actuator"
+		capability "Button"
+		capability "Sensor"
+        capability "Polling"
+        capability "Refresh"
+        capability "switch"
+
+        command "push1"
+        command "push2"
+        command "push3"
+        command "push4"
+        command "push5"
+        command "push6"
+        command "push7"
+        command "push8"
+	}
+
+	simulator {
+		status "button 1 pushed":  "command: 2001, payload: 01"
+		status "button 5 pushed":  "command: 2001, payload: 15"
+		status "button 2 pushed":  "command: 2001, payload: 29"
+		status "button 6 pushed":  "command: 2001, payload: 3D"
+		status "button 3 pushed":  "command: 2001, payload: 51"
+		status "button 7 pushed":  "command: 2001, payload: 65"
+		status "button 4 pushed":  "command: 2001, payload: 79"
+		status "button 8 pushed":  "command: 2001, payload: 8D"
+		status "wakeup":  "command: 8407, payload: "
+	}
+	tiles {
+		     
+		         
+        standardTile("switch", "device.switch", width: 1, height: 1,  canChangeBackground: true) {
+         		state "on", label: "On", action: "switch.off", icon: "st.Health & Wellness.health2", backgroundColor: "#0000ff"
+        		state "off", label: "Off", action: "switch.on", icon: "st.Health & Wellness.health2", backgroundColor: "#ffffff"
+        }
+        standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
+            state "", action:"refresh.refresh", icon:"st.secondary.refresh"
+        }
+
+        standardTile("button", "device.button") {
+			state "default", label: "", icon: "st.unknown.zwave.remote-controller", backgroundColor: "#ffffff"
+		}
+ 		standardTile("push1", "device.button", width: 1, height: 1, decoration: "flat") {
+			state "default", label: "Change", backgroundColor: "#000000", action: "push1"
+		}
+ 		standardTile("push2", "device.button", width: 1, height: 1, decoration: "flat") {
+			state "default", label: "Red", backgroundColor: "#ff0000", action: "push2"
+		}
+ 		standardTile("push3", "device.button", width: 1, height: 1, decoration: "flat") {
+			state "default", label: "Green", backgroundColor: "#00ff00", action: "push3"
+		}
+ 		standardTile("push4", "device.button", width: 1, height: 1, decoration: "flat") {
+			state "default", label: "Blue", backgroundColor: "#0000ff", action: "push4"
+		}
+ 			standardTile("push5", "device.button", width: 1, height: 1, decoration: "flat") {
+			state "default", label: "Yellow", backgroundColor: "#ffff00", action: "push5"
+		}
+ 		standardTile("push6", "device.button", width: 1, height: 1, decoration: "flat") {
+			state "default", label: "SkyBlue", backgroundColor: "#87ceeb", action: "push6"
+		}
+ 			standardTile("push7", "device.button", width: 1, height: 1, decoration: "flat") {
+			state "default", label: "Magenta", backgroundColor: "#ff00ff", action: "push7"
+		}
+ 		standardTile("push8", "device.button", width: 1, height: 1, decoration: "flat") {
+			state "default", label: "White", backgroundColor: "#eeeeee", action: "push8"
+		}
+
+		main (["switch","button"])
+		details(["switch","push1","push2","push3","push4","push5","push6","push7","push8"])
+	
+       
+		}
+
+}
+
+def parse(String description) {
+    def pair = description.split(":")
+
+    createEvent(name: pair[0].trim(), value: pair[1].trim())
+}
+
+def push1() {
+    cchange(1)
+    push(1)
+    refresh()
+}
+
+def push2() {
+	cchange(2)
+    push(2)
+    refresh()
+}
+
+def push3() {
+	cchange(3)
+    push(3)
+    refresh()
+}
+
+def push4() {
+    cchange(4)
+    push(4)
+    refresh()
+}
+
+def push5() {
+	cchange(5)
+    push(5)
+    refresh()
+}
+
+def push6() {
+	cchange(6)
+    push(6)
+    refresh()
+}
+
+def push7() {
+	cchange(7)
+    push(7)
+    refresh()
+}
+
+def push8() {
+	cchange(8)
+    push(8)
+    refresh()
+}
+
+private push(button) {
+	log.debug "$device.displayName button $button was pushed"
+	sendEvent(name: "button", value: "pushed", data: [buttonNumber: button], descriptionText: "$device.displayName button $button was pushed", isStateChange: true)
+}
+
+
+def installed() {
+	initialize()
+}
+
+def updated() {
+	initialize()
+}
+
+def initialize() {
+	sendEvent(name: "numberOfButtons", value: 8)
+}
+
+
+def poll() {
+    log.debug "Executing 'poll'"
+   
+}
+
+def refresh() {
+    log.debug "Executing 'refresh'"
+    
+}
+    
+def on() {
+	sendEvent(name: 'switch', value: 'on')
+    puts(1)
+}
+
+def off() {
+	sendEvent(name: 'switch', value: 'off')
+	 puts(0)
+}
+
+// get pool pump RPM
+private getRPM() {
+    def closure = { response ->
+        log.debug "RPM request was successful, $response.data"
+
+        sendEvent(name: "carbonDioxide", value: response.data.result)
+    }
+
+    httpGet("https://api.particle.io/v1/devices/${deviceId}/${RPMVar}?access_token=${token}", closure)
+}
+private getWATT() {
+    def closure = { response ->
+        log.debug "WATT request was successful, $response.data"
+
+        sendEvent(name: "power", value: response.data.result)
+    }
+
+    httpGet("https://api.particle.io/v1/devices/${deviceId}/${wattVar}?access_token=${token}", closure)
+}
+
+// Send a button push to photon
+private cchange(button) {
+	httpPost(
+		uri: "https://api.particle.io/v1/devices/${deviceId}/${changeVar}",
+        body: [access_token: token, command: button],  
+	) {response -> log.debug (response.data)}
+}
+
+// Send a switch command to photon
+private puts(scommand) {
+	httpPost(
+		uri: "https://api.particle.io/v1/devices/${deviceId}/${LightVar}",
+        body: [access_token: token, command: scommand],  
+	) {response -> log.debug (response.data)}
+}
