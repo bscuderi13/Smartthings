@@ -1,0 +1,790 @@
+// This #include statement was automatically added by the Particle IDE.
+#include <OneWire.h>  //For Temp Sensor
+
+STARTUP(WiFi.selectAntenna(ANT_EXTERNAL)); // Use external antenna
+
+// define pin names for easier reference
+#define pPumpRelay1     D4
+#define pPumpRelay2     D5
+#define pPumpRelay3     D6
+#define tempPower       A0
+#define tempGround      A1
+#define aeratoronrelay  D0
+#define aeratoroffrelay D1
+#define cleaneronrelay  D2
+#define cleaneroffrelay D3
+#define poollight       D7
+
+// Pump Speed Variables
+int pumpSetting = 0;
+int pumpSpeed = 0;
+int pumpPowerConsumption = 0;
+int totalKWH = 0;
+
+//** temp variables
+OneWire ds = OneWire(A2);  //** 1-wire signal on pin A2
+unsigned long lastUpdate = 0;
+float lastTemp;
+int tLast = -1;
+int ioat = -777;
+
+// Pool Temp & Level Variables
+double poolTemp = 0.0;
+int poolLevel = 0;
+int checkinTime =  -1;
+
+// Valve Flag Variables
+char aFlag = 0;
+char cFlag = 0;
+
+// Variables to track valve position
+char cleaners = 0;
+
+//  Variables for Pool Light
+char ccFlag = 0;
+
+
+void setup() {
+// Set Timezone
+  Time.zone(-7);
+// Set Pump Pins to Outputs
+  pinMode(pPumpRelay1, OUTPUT); 
+  pinMode(pPumpRelay2, OUTPUT); 
+  pinMode(pPumpRelay3, OUTPUT); 
+// Set Valve Pins to Outputs
+  pinMode(aeratoronrelay, OUTPUT);
+  pinMode(aeratoroffrelay, OUTPUT);
+  pinMode(cleaneronrelay, OUTPUT);
+  pinMode(cleaneroffrelay, OUTPUT);
+  pinMode(poollight, OUTPUT);
+// Set valve and light relays to defualt state
+  digitalWrite(aeratoronrelay, HIGH);
+  digitalWrite(aeratoroffrelay, HIGH);
+  digitalWrite(cleaneronrelay, HIGH);
+  digitalWrite(cleaneroffrelay, HIGH); 
+  digitalWrite(poollight, HIGH);
+// Default Pump Relays to Off
+  digitalWrite(pPumpRelay1, HIGH);
+  digitalWrite(pPumpRelay2, HIGH);
+  digitalWrite(pPumpRelay3, HIGH);
+// Register Cloud Functions for Pump
+  Particle.function("PumpSpeed", SetSpeed);
+  Particle.variable("PumpRPM", pumpSpeed);
+  Particle.variable("PowerUse", pumpPowerConsumption);
+  Particle.variable("TotalKWH", totalKWH);
+// Register Cloud Functions for valves
+  Particle.function("aerator", aeratorfunc);
+  Particle.function("floorcleaner", cleanerfunc);
+// subscribe to and publish temp & levelchanges
+  Particle.subscribe("CurrentTemperature", tempHandler, MY_DEVICES);
+  Particle.subscribe("waterlevel", levelHandler, MY_DEVICES);
+  Particle.variable("PoolTemp", poolTemp);
+  Particle.variable("PoolLevel", poolLevel);
+//** register cloud functions for temp  
+  Particle.variable("OAT", ioat);
+// Cloud Functions For Pool Light
+  Particle.function("poollight", poollightfunc);
+  Particle.function("colorchange", colorchangefunc);
+//** temp pin setup
+  pinMode(tempPower, OUTPUT); //** power temp sensor
+  pinMode(tempGround, OUTPUT); //** ground temp sensor
+  digitalWrite(tempPower, HIGH);
+  digitalWrite(tempGround, LOW);
+
+// start valve position at cleaner on so easier to track  
+  cleanerOn(); // go on first to hit valve limit switch
+  cleanerOff(); // then go back to default to off
+  aeratorOff(); // start default aerator off
+  Particle.publish("cleaners", "off", PRIVATE); // let smartthings know to update valve position
+}
+
+void loop() {
+  //** temp loop code checks the time and decides if we need to check outside temp
+  int secNow = Time.local() % 86400;  // whats the current second of the day
+  int tSince = (secNow - tLast);
+  if (tSince < 0)                      // correct for 24 hour time clock
+  {
+    tSince = ((86400 - tLast) + secNow);
+  }
+  if (tSince >= 600 or tLast == -1)   // run every ten minutes or first boot
+  {
+    getOAT();
+  }
+  
+  // Valve loop Code checks for valve flags set from the cloud function and runs the appropriate function to avoid cloud response delays
+  if (aFlag == 1)
+  {
+    aeratorOn();
+  }
+  if (aFlag == 2)
+  {
+    aeratorOff();
+  }
+  if (cFlag == 1)
+  {
+    cleanerOn();
+  }
+  if (cFlag == 2)
+  {
+    cleanerOff();
+  }
+  
+  // Pool Light Loop Code
+  if (ccFlag == 1)
+  {
+    colorChange();
+  }
+  if (ccFlag == 2)
+  {
+    redLight();
+  }
+  if (ccFlag == 3)
+  {
+    greenLight();
+  }
+  if (ccFlag == 4)
+  {
+    blueLight();
+  }
+  if (ccFlag == 5)
+  {
+    yellowLight();
+  }
+  if (ccFlag == 6)
+  {
+    skyblueLight();
+  }
+  if (ccFlag == 7)
+  {
+    magentaLight();
+  }
+  if (ccFlag == 8)
+  {
+    whiteLight();
+  }
+}
+
+// get a temp reading
+void getOAT() {
+byte i;
+  byte present = 0;
+  byte type_s;
+  byte data[12];
+  byte addr[8];
+  float celsius, fahrenheit;
+  if ( !ds.search(addr)) {
+    ds.reset_search();
+    delay(250);
+    return;
+  }
+  switch (addr[0]) {
+    case 0x10:
+      type_s = 1;
+      break;
+    case 0x28:
+      type_s = 0;
+      break;
+    case 0x22:
+      type_s = 0;
+      break;
+    case 0x26:
+      type_s = 2;
+      break;
+    default:
+      return;
+  }
+  ds.reset();               
+  ds.select(addr);          
+  ds.write(0x44, 0);        
+  delay(1000);     
+  present = ds.reset();
+  ds.select(addr);
+  ds.write(0xB8,0);         
+  ds.write(0x00,0);         
+  present = ds.reset();
+  ds.select(addr);
+  ds.write(0xBE,0);         
+  if (type_s == 2) {
+    ds.write(0x00,0);       
+  }
+  for ( i = 0; i < 9; i++) {           
+    data[i] = ds.read();
+    }
+  int16_t raw = (data[1] << 8) | data[0];
+  if (type_s == 2) raw = (data[2] << 8) | data[1];
+  byte cfg = (data[4] & 0x60);
+  switch (type_s) {
+    case 1:
+      raw = raw << 3; 
+      if (data[7] == 0x10) {
+        raw = (raw & 0xFFF0) + 12 - data[6];
+      }
+      celsius = (float)raw * 0.0625;
+      break;
+    case 0:
+      
+      if (cfg == 0x00) raw = raw & ~7;
+      if (cfg == 0x20) raw = raw & ~3;
+      if (cfg == 0x40) raw = raw & ~1;
+      celsius = (float)raw * 0.0625;
+      break;
+    case 2:
+      data[1] = (data[1] >> 3) & 0x1f;
+      if (data[2] > 127) {
+        celsius = (float)data[2] - ((float)data[1] * .03125);
+      }else{
+        celsius = (float)data[2] + ((float)data[1] * .03125);
+      }
+  }
+  if((((celsius <= 0 && celsius > -1) && lastTemp > 5)) || celsius > 125) {
+      celsius = lastTemp;
+  }
+  fahrenheit = celsius * 1.8 + 32.0;
+  lastTemp = celsius;
+  String oat = String(fahrenheit);
+  Particle.publish("OAT", oat, PRIVATE);
+  ioat = atoi(oat);
+  tLast = Time.local() % 86400;
+}
+
+// aerator on function
+void aeratorOn() {
+    aFlag = 0;
+    digitalWrite(aeratoroffrelay, HIGH);
+    delay(1000);
+    digitalWrite(aeratoronrelay, LOW);
+    delay(8000);
+    digitalWrite(aeratoronrelay, HIGH);
+
+}
+
+// aerator off function
+void aeratorOff() {
+    aFlag = 0;
+    digitalWrite(aeratoronrelay, HIGH);
+    delay(1000);
+    digitalWrite(aeratoroffrelay, LOW);
+    delay(8000);
+    digitalWrite(aeratoroffrelay, HIGH);
+
+}
+
+// cleaner on function
+void cleanerOn() {
+  cFlag = 0;                           // reset flag to stop repeats
+  if (cleaners != 1)                   // doesnt run if the valve position is already set
+  {
+    digitalWrite(cleaneroffrelay, HIGH); // first make sure the reverse direction relay is set to off
+    delay(1000);                         // wait for motor to spool down before in case its reversing direction
+    digitalWrite(cleaneronrelay, LOW);   // activate the relay
+    delay(20000);                        // 20 secondes to make sure it hits limit switch
+    cleaners = 1;                        // track valve position
+    digitalWrite(cleaneronrelay, HIGH);  // Stop Relay
+    wattchange();                        // Recalculate Power Consumption for valve position
+  }
+}
+
+// cleaner off function sets the valve back to the middle returns with just timing
+void cleanerOff() {
+  cFlag = 0;                          // set the flag back to 0 to avoid looping
+  if (cleaners != 0)                  // doesnt run if the valve position is already set
+  {
+    digitalWrite(cleaneronrelay, HIGH); // first make sure the reverse direction relay is set to off
+    delay(1000);                         // wait for motor to spool down before in case its reversing direction
+    digitalWrite(cleaneroffrelay, LOW);   // activate the relay
+    delay(17500);                       // half of a full cycle timing to get valve into the center position since there is no limit switch set in the center
+    digitalWrite(cleaneroffrelay, HIGH); // shutoff relay
+    cleaners = 0;
+    wattchange();                        // Recalculate Power Consumption for valve position
+  }
+}
+
+// Pool Color Change
+void colorChange() {
+    ccFlag = 0;
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    Particle.publish("plight", "on", PRIVATE);
+}
+
+// Pool Red Light
+void redLight() {
+    ccFlag = 0;
+    int light = digitalRead(poollight); // check if its on if it is turn it off and wait to reset first
+    if (light == LOW) 
+    {
+        digitalWrite(poollight, HIGH);
+        delay(5000);
+    }
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    Particle.publish("plight", "on", PRIVATE);
+}
+
+// Pool Green Light
+void greenLight() {
+    ccFlag = 0;
+    int light = digitalRead(poollight); // check if its on if it is turn it off and wait to reset first
+    if (light == LOW) 
+    {
+        digitalWrite(poollight, HIGH);
+        delay(5000);
+    }
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    Particle.publish("plight", "on", PRIVATE);
+}
+
+//Pool Blue Light
+void blueLight() {
+    ccFlag = 0;
+    int light = digitalRead(poollight); // check if its on if it is turn it off and wait to reset first
+    if (light == LOW) 
+    {
+        digitalWrite(poollight, HIGH);
+        delay(5000);
+    }
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    Particle.publish("plight", "on", PRIVATE);
+}
+
+// Pool Yellow Light
+void yellowLight() {
+    ccFlag = 0;
+    int light = digitalRead(poollight); // check if its on if it is turn it off and wait to reset first
+    if (light == LOW) 
+    {
+        digitalWrite(poollight, HIGH);
+        delay(5000);
+    }
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    Particle.publish("plight", "on", PRIVATE);
+}
+
+// Pool Skyblue Light
+void skyblueLight() {
+    ccFlag = 0;
+    int light = digitalRead(poollight); // check if its on if it is turn it off and wait to reset first
+    if (light == LOW) 
+    {
+        digitalWrite(poollight, HIGH);
+        delay(5000);
+    }
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    Particle.publish("plight", "on", PRIVATE);
+}
+
+// Pool Magenta Light
+void magentaLight() {
+    ccFlag = 0;
+    int light = digitalRead(poollight); // check if its on if it is turn it off and wait to reset first
+    if (light == LOW) 
+    {
+        digitalWrite(poollight, HIGH);
+        delay(5000);
+    }
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    Particle.publish("plight", "on", PRIVATE);
+}
+
+// Pool White Light
+void whiteLight() {
+    ccFlag = 0;
+    int light = digitalRead(poollight); // check if its on if it is turn it off and wait to reset first
+    if (light == LOW) 
+    {
+        digitalWrite(poollight, HIGH);
+        delay(5000);
+    }
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    delay(250);
+    digitalWrite(poollight, HIGH);
+    delay(250);
+    digitalWrite(poollight, LOW);
+    Particle.publish("plight", "on", PRIVATE);
+}
+
+// runs if valve changes to update pump power use
+void wattchange() {
+    if (pumpSetting == 6)
+    {
+      if (cleaners == 0)  
+      {
+        pumpPowerConsumption = 972;
+      }
+      else
+      {
+        pumpPowerConsumption = 890; 
+      }
+    }
+    if (pumpSetting == 7)
+    {
+      if (cleaners == 0)
+      {
+        pumpPowerConsumption = 1472;
+      }
+      else
+      {
+        pumpPowerConsumption = 1370; 
+      }
+    }
+    Particle.publish("wattchange", "true", PRIVATE);  
+}
+
+int SetSpeed(String command)
+{
+// cloud trigger for pool speed
+  if (command == "0") 
+    {   
+      digitalWrite(pPumpRelay1, HIGH);
+      digitalWrite(pPumpRelay2, HIGH);
+      digitalWrite(pPumpRelay3, HIGH);
+      pumpSetting = 0;
+      pumpSpeed = 0;
+      pumpPowerConsumption = 0;
+      return 0;
+    }
+  if (command == "1")
+   {
+      digitalWrite(pPumpRelay1, LOW);
+      digitalWrite(pPumpRelay2, HIGH);
+      digitalWrite(pPumpRelay3, HIGH);
+      pumpSetting = 1;
+      pumpSpeed = 1000;
+      pumpPowerConsumption = 58;
+      return 1;
+   }
+  if (command == "2")
+   {
+      digitalWrite(pPumpRelay1, HIGH);
+      digitalWrite(pPumpRelay2, LOW);
+      digitalWrite(pPumpRelay3, HIGH);
+      pumpSetting = 2;
+      pumpSpeed = 1250;
+      pumpPowerConsumption = 93;
+      return 2;
+   }
+   if (command == "3")
+   {
+      digitalWrite(pPumpRelay1, LOW);
+      digitalWrite(pPumpRelay2, LOW);
+      digitalWrite(pPumpRelay3, HIGH);
+      pumpSetting = 3;
+      pumpSpeed = 1500;
+      pumpPowerConsumption = 145;
+      return 3;
+   }
+   if (command == "4")
+   {
+      digitalWrite(pPumpRelay1, HIGH);
+      digitalWrite(pPumpRelay2, HIGH);
+      digitalWrite(pPumpRelay3, LOW);
+      pumpSetting = 4;
+      pumpSpeed = 2000;
+      pumpPowerConsumption = 310;
+       return 4;
+   }
+   if (command == "5")
+   {
+      digitalWrite(pPumpRelay1, LOW);
+      digitalWrite(pPumpRelay2, HIGH);
+      digitalWrite(pPumpRelay3, LOW);
+      pumpSetting = 5;
+      pumpSpeed = 2500;
+      pumpPowerConsumption = 570;
+      return 5;
+   }
+   if (command == "6")
+   {
+      digitalWrite(pPumpRelay1, HIGH);
+      digitalWrite(pPumpRelay2, LOW);
+      digitalWrite(pPumpRelay3, LOW);
+      pumpSetting = 6;
+      pumpSpeed = 3000;
+      if (cleaners == 0)   // cleaners off power consumption is higher ill only use cleaners at 3000 oor 3450 rpm
+      {
+        pumpPowerConsumption = 972;
+      }
+      else
+      {
+        pumpPowerConsumption = 890; 
+      }
+      return 6;
+   }
+   if (command == "7")
+   {
+      digitalWrite(pPumpRelay1, LOW);
+      digitalWrite(pPumpRelay2, LOW);
+      digitalWrite(pPumpRelay3, LOW);
+      pumpSetting = 7;
+      pumpSpeed = 3450;
+      if (cleaners == 0)   // cleaners off power consumption is higher ill only use cleaners at 3000 oor 3450 rpm
+      {
+        pumpPowerConsumption = 1472;
+      }
+      else
+      {
+        pumpPowerConsumption = 1370; 
+      }
+      return 7;
+   }
+   else  // bad command shutoff pump return 9
+    {               
+      digitalWrite(pPumpRelay1, HIGH);
+      digitalWrite(pPumpRelay2, HIGH);
+      digitalWrite(pPumpRelay3, HIGH);
+      pumpSetting = 0;
+      pumpSpeed = 0;
+      pumpPowerConsumption = 0;
+      return 9;
+    }
+}
+
+//  Cloud Function for Aerator
+int aeratorfunc(String command)
+{
+// cloud trigger for clockwise valve aerator on relay sets a flag in loop to avoid timing out the sending of the status return
+  if (command == "1") 
+    {   
+      aFlag = 1;
+      return 1;
+    }
+// cloud trigger for counterclosckwise valve aerator off relay sets a flag in loop to avoid timing out the sending of the status return
+  else 
+    {               
+      aFlag = 2;
+      return 0;
+    }
+}
+
+int cleanerfunc(String command)
+{
+// cloud trigger for floor cleaner valve full on sets a flag in loop to avoid timing out the sending of the status return
+  if (command == "1") 
+    {   
+      cFlag = 1;
+      return 1;
+    }
+// cloud trigger for valve state to all returns open sets a flag in loop to avoid timing out the sending of the status return
+  else 
+    {               
+      cFlag = 2;
+      return 0;
+    }
+}
+// Pool Light Cloud Functions
+int poollightfunc(String command)
+{
+// cloud trigger for pool light on
+int light = digitalRead(poollight); // check state
+  if (command == "1")
+    {
+      if (light == HIGH){
+      digitalWrite(poollight, LOW);
+      }
+      if (light == LOW){
+      }
+      return 1;
+    }
+ 
+// cloud command light off  
+  else if (command == "0")
+    {
+      if (light == LOW){
+      digitalWrite(poollight, HIGH);
+      }
+      if (light == HIGH){
+      }
+      return 0;
+    }
+// bad command
+  else 
+    {               
+      return 666;
+    }
+}
+int colorchangefunc(String command)
+{
+// cloud trigger for color change
+  if (command == "1") 
+    {   
+      ccFlag = 1;
+      return 1;
+    }
+  if (command == "2") 
+    {   
+      ccFlag = 2;
+      return 2;
+    }
+  if (command == "3") 
+    {   
+      ccFlag = 3;
+      return 3;
+    }
+  if (command == "4") 
+    {   
+      ccFlag = 4;
+      return 4;
+    }
+  if (command == "5") 
+    {   
+      ccFlag = 5;
+      return 5;
+    }
+  if (command == "6") 
+    {   
+      ccFlag = 6;
+      return 6;
+    }
+  if (command == "7") 
+    {   
+      ccFlag = 7;
+      return 7;
+    }
+  if (command == "8") 
+    {   
+      ccFlag = 8;
+      return 8;
+    }
+// cloud trigger for pool light off
+  else 
+    {               
+      ccFlag= 0;
+      return 0;
+    }
+}
+
+
+// Temp Handler when subscribed event happens
+void tempHandler(const char *event, const char *data)
+{
+poolTemp = atof(data);
+checkinTime = Time.local() % 86400;
+}
+
+// Level Handler when subscribed event happens
+void levelHandler(const char *event, const char *data)
+{
+poolLevel = atoi(data);
+}
