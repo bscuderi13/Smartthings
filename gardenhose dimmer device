@@ -30,10 +30,10 @@ preferences {
 				attributeState "level", action:"switch level.setLevel"
 			}
             }
-        valueTile("gal", "device.gal", width: 1, height: 1) {
+        valueTile("gal", "device.gal", width: 3, height: 3) {
             state("gal", label:'${currentValue} G')
             }
-         standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
+         standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 3, height: 3) {
             state "default", action:"refresh.refresh", icon:"st.secondary.refresh"
             }
 		
