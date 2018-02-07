@@ -1,3 +1,4 @@
+// added dimmer capability on garden hose
 //---------------------------------------------------------------------------
 // Variables and Pin definitions
 //---------------------------------------------------------------------------
@@ -35,6 +36,9 @@ int pLow = 160;
 float gpmm = 13;  //previously 8.33 
 int fillPercent = 0;
 int calcfillamount = 0;
+double percent = 0;
+double previousPercent = 0;
+double seconds = 0;
 
 //-----------------------------------------------------------------------------
 // Water Sensor interrupts
@@ -84,11 +88,12 @@ void setup()
 // Cloud Based Functions
   Particle.function("misteron", misteronfunc);
   Particle.function("poolon", poolonfunc);
+   Particle.function("percenton", percentfunc);
   Particle.subscribe("waterlevel", levelHandler, MY_DEVICES);
   Particle.variable("PoolLevel", fillPercent);
   Particle.variable("CalcFill", calcfillamount);
-// time zone
-  Time.zone(-7);
+  Particle.variable("Seconds", seconds);
+  Particle.variable("Percent", percent);
 }
 
 //--------------------------------------------------------------------------------
@@ -107,6 +112,37 @@ void loop()
     previousgp = totalgp;
     }
   
+// checks for a percent change
+  if (percent != previousPercent)
+  {
+    double calcsec = (1000 * (3.5 * (percent / 100) ) );
+    double cursec = (1000 * (3.5 * (previousPercent / 100) ) );
+   
+    // if the valve hasa percentage increases open valve the right amount
+    if ((calcsec - cursec) > 0)
+    {
+      seconds = (calcsec - cursec);
+      digitalWrite(pooloff, HIGH);
+      delay (500);
+      digitalWrite(poolon, LOW);
+      delay (seconds);
+      digitalWrite(poolon, HIGH);
+      previousPercent = percent;
+      pvalvepos = 1;
+    }
+    // if the valve is already on and percentage decreases close slightly to achieve value
+    if (pvalvepos == 1 && ((calcsec - cursec) < 0) && percent != 0)
+    {
+      seconds = (cursec - calcsec);
+      digitalWrite(poolon, HIGH);
+      delay (500);
+      digitalWrite(pooloff, LOW);
+      delay (seconds);
+      digitalWrite(pooloff, HIGH);
+      previousPercent = percent;
+    }
+  
+  }
 // Flags To Activate Relays
   if (monflag == 1 && mvalvepos == 0) // Misters On
   {
@@ -114,7 +150,7 @@ void loop()
     digitalWrite(misteroff, HIGH);
     delay (500);
     digitalWrite(misteron, LOW);
-    delay (7000);
+    delay (4200);
     digitalWrite(misteron, HIGH);
     monflag = 0;
     mvalvepos = 1;
@@ -125,7 +161,7 @@ void loop()
     digitalWrite(misteron, HIGH);
     delay (500);
     digitalWrite(misteroff, LOW);
-    delay (7000);
+    delay (5000);
     digitalWrite(misteroff, HIGH);
     moffflag = 0;
     mvalvepos = 0;
@@ -133,14 +169,9 @@ void loop()
  
   if (ponflag == 1 && pvalvepos == 0) // Pool On
   {
-    TPulseCountp = 0;
-    digitalWrite(pooloff, HIGH);
-    delay (500);
-    digitalWrite(poolon, LOW);
-    delay (7000);
-    digitalWrite(poolon, HIGH);
+    //reset previous percent in order to turn on to last percent
+    previousPercent = 0;
     ponflag = 0;
-    pvalvepos = 1;
   }
   
   if (poffflag == 1 && pvalvepos ==1)  // Pool Off
@@ -148,7 +179,7 @@ void loop()
     digitalWrite(poolon, HIGH);
     delay (500);
     digitalWrite(pooloff, LOW);
-    delay (7000);
+    delay (5000);
     digitalWrite(pooloff, HIGH);
     poffflag = 0;
     pvalvepos = 0;
@@ -220,6 +251,18 @@ int poolonfunc(String command)
     poffflag = 1;
     return 0;
     }
+}
+
+int percentfunc(String command)
+{
+  if (command == "0")
+  {
+    poffflag = 1;
+  }
+  else {
+  percent =  atof (command);
+  return percent;
+  }
 }
 // Level Handler
 void levelHandler(const char *event, const char *data)
