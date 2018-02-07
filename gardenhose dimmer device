@@ -1,3 +1,5 @@
+// changed to allow dimming capablitiy for partially open hose valve
+
 metadata {
 	definition (name: "Gardenhose2", namespace: "brennonsapps", author: "bscuderi") {
 		capability "Actuator"
@@ -5,6 +7,7 @@ metadata {
         capability "Polling"
         capability "Refresh"
         capability "switch"
+        capability "Switch Level"
         attribute "gal", "number"
 	}
 
@@ -17,10 +20,16 @@ preferences {
  
   // tile definitions
 	tiles {
-		standardTile("switch", "device.switch", width: 2, height: 2, canChangeIcon: true) {
-		state "on", label: '${name}', action: "switch.off", icon: "st.switches.switch.on", backgroundColor: "#79b821"
-		state "off", label: '${name}', action: "switch.on", icon: "st.switches.switch.off", backgroundColor: "#ffffff"
+		multiAttributeTile(name:"switch", type: "lighting", width: 3, height: 3, canChangeIcon: true){
+			tileAttribute ("device.switch", key: "PRIMARY_CONTROL") {
+        //standardTile("switch", "device.switch", width: 2, height: 2, canChangeIcon: true) {
+		attributeState "on", label: '${name}', action: "switch.off", icon: "st.switches.switch.on", backgroundColor: "#79b821"
+		attributeState "off", label: '${name}', action: "switch.on", icon: "st.switches.switch.off", backgroundColor: "#ffffff"
 		}
+        tileAttribute ("device.level", key: "SLIDER_CONTROL") {
+				attributeState "level", action:"switch level.setLevel"
+			}
+            }
         valueTile("gal", "device.gal", width: 1, height: 1) {
             state("gal", label:'${currentValue} G')
             }
@@ -76,4 +85,24 @@ def updated() {
 def refresh() {
     log.debug "Executing 'refresh'"
     getGallons()
+}
+def setLevel(value) {
+	log.debug "setLevel >> value: $value"
+	def valueaux = value as Integer
+	def level = Math.max(Math.min(valueaux, 99), 0)
+	if (level > 0) {
+		sendEvent(name: "switch", value: "on")
+	} else {
+		put(0)
+        sendEvent(name: "switch", value: "off")
+	}
+	sendEvent(name: "level", value: level, unit: "%")
+    levelsend(level)
+   }
+ private levelsend(percent) {
+    //particle API Call level
+	httpPost(
+		uri: "https://api.particle.io/v1/devices/${deviceId}/percenton",
+        body: [access_token: token, command: percent],  
+	) {response -> log.debug (response.data)}
 }
