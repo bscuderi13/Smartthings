@@ -1,3 +1,4 @@
+// edited to a new device look
 /**
  *  Copyright 2015 SmartThings
  *
@@ -23,6 +24,7 @@ metadata {
 		capability "Button"
 		capability "Sensor"
         attribute "RPM", "number"
+        attribute "pump", "enum"
        	capability "Power Meter"
         capability "Polling"
         capability "Refresh"
@@ -54,51 +56,164 @@ metadata {
 	}
 	tiles {
 		     
-		 valueTile("RPM", "device.carbonDioxide", width: 1, height: 1) {
-            state("carbonDioxide", label:'${currentValue} RPM')
+        multiAttributeTile(name: "pump", type: "lighting", width: 4, height: 2, canChangeIcon: true) {
+			tileAttribute("device.pump", key: "PRIMARY_CONTROL") {
+				attributeState "on", label: 'On', icon: "st.Health & Wellness.health2", backgroundColor: "#4444FF"
+				attributeState "off", label: 'Off', icon: "st.Health & Wellness.health2", backgroundColor: "#ffffff"
+				
+			}
+			tileAttribute("device.carbonDioxide", key: "SECONDARY_CONTROL") {
+				attributeState "carbonDioxide", label: '${currentValue} RPM'
+			}
+             tileAttribute ("device.power", key: "SECONDARY_CONTROL") {
+				attributeState "power", label: '                                                            ${currentValue} Watts'
+			}
+		}
+ 
+       
+       valueTile("mainthing", "device.carbonDioxide", width: 1, height: 1) {
+            state("carbonDioxide", icon: "st.Health & Wellness.health2", label:'${currentValue} RPM',
+            	    backgroundColors:[    
+                    [value:    0, color: "#dddddd"],
+                    [value: 1000, color: "#1e9cbb"],
+                    [value: 1250, color: "#90d2a7"],
+                    [value: 1500, color: "#44b621"],
+                    [value: 2000, color: "#f1d801"],
+                    [value: 2500, color: "#d04e00"],
+                    [value: 3000, color: "#bc2323"],
+                    [value: 3450, color: "#ee2323"]
+                    ]
+         )           
         }
-         valueTile("WATT", "device.power", width: 1, height: 1) {
-            state("power", label:'${currentValue} Watts')
-        }
+         //not used now with current style layou
+         //valueTile("WATT", "device.power", width: 1, height: 1) {
+         //   state("power", label:'${currentValue} Watts')
+        // }
         
-        standardTile("switch", "device.switch", width: 1, height: 1,  canChangeBackground: true) {
+        standardTile("switch", "device.switch", width: 2, height: 2,  canChangeBackground: true) {
          		state "on", label: "Auto", action: "switch.off", icon: "st.Health & Wellness.health7", backgroundColor: "#79b821"
-        		state "off", label: "Manual", action: "switch.on", icon: "st.Health & Wellness.health7", backgroundColor: "#ffffff"
+        		state "off", label: "Manual", action: "switch.on", icon: "st.Health & Wellness.health7", backgroundColor: "#ff2222"
         }
-        standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
+        standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 2, height: 1) {
             state "", action:"refresh.refresh", icon:"st.secondary.refresh"
         }
 
-        standardTile("button", "device.button") {
-			state "default", label: "", icon: "st.unknown.zwave.remote-controller", backgroundColor: "#ffffff"
+       
+ 		valueTile("push1", "device.carbonDioxide", width: 4, height: 1, decoration: "flat") {
+			state ("default" , label: "OFF", action: "push1",
+            backgroundColors:[    
+                    [value:    0, color: "#dddddd"],
+                    [value: 1000, color: "#ffffff"],
+                    [value: 1250, color: "#ffffff"],
+                    [value: 1500, color: "#ffffff"],
+                    [value: 2000, color: "#ffffff"],
+                    [value: 2500, color: "#ffffff"],
+                    [value: 3000, color: "#ffffff"],
+                    [value: 3450, color: "#ffffff"]
+                    ]
+             )
 		}
- 		standardTile("push1", "device.button", width: 1, height: 1, decoration: "flat") {
-			state "default", label: "OFF", backgroundColor: "#ffffff", action: "push1"
+ 		valueTile("push2", "device.carbonDioxide", width: 2, height: 1, decoration: "flat") {
+			state ("default" , label: "1,000 RPM", action: "push2",
+            		 backgroundColors:[    
+                    [value:    0, color: "#ffffff"],
+                    [value: 1000, color: "#4444FF"],
+                    [value: 1250, color: "#ffffff"],
+                    [value: 1500, color: "#ffffff"],
+                    [value: 2000, color: "#ffffff"],
+                    [value: 2500, color: "#ffffff"],
+                    [value: 3000, color: "#ffffff"],
+                    [value: 3450, color: "#ffffff"]
+                    ]
+             )
 		}
- 		standardTile("push2", "device.button", width: 1, height: 1, decoration: "flat") {
-			state "default", label: "1,000 RPM", backgroundColor: "#ffffff", action: "push2"
+ 		valueTile("push3", "device.carbonDioxide", width: 2, height: 1, decoration: "flat") {
+			state ("default" , label: "1,250 RPM", action: "push3",
+            		 backgroundColors:[    
+                    [value:    0, color: "#ffffff"],
+                    [value: 1000, color: "#ffffff"],
+                    [value: 1250, color: "#4444FF"],
+                    [value: 1500, color: "#ffffff"],
+                    [value: 2000, color: "#ffffff"],
+                    [value: 2500, color: "#ffffff"],
+                    [value: 3000, color: "#ffffff"],
+                    [value: 3450, color: "#ffffff"]
+                    ]
+             )
 		}
- 		standardTile("push3", "device.button", width: 1, height: 1, decoration: "flat") {
-			state "default", label: "1,250 RPM", backgroundColor: "#ffffff", action: "push3"
+ 		valueTile("push4", "device.carbonDioxide", width: 2, height: 1, decoration: "flat") {
+			state ("default" , label: "1,500 RPM", action: "push4",
+            		 backgroundColors:[    
+                    [value:     0, color: "#ffffff"],
+                    [value: 1000, color: "#ffffff"],
+                    [value: 1250, color: "#ffffff"],
+                    [value: 1500, color: "#4444FF"],
+                    [value: 2000, color: "#ffffff"],
+                    [value: 2500, color: "#ffffff"],
+                    [value: 3000, color: "#ffffff"],
+                    [value: 3450, color: "#ffffff"]
+                    ]
+             )
 		}
- 		standardTile("push4", "device.button", width: 1, height: 1, decoration: "flat") {
-			state "default", label: "1,500 RPM", backgroundColor: "#ffffff", action: "push4"
+ 		valueTile("push5", "device.carbonDioxide", width: 2, height: 1, decoration: "flat") {
+			state ("default" , label: "2,000 RPM", action: "push5",
+            		 backgroundColors:[    
+                    [value:     0, color: "#ffffff"],
+                    [value: 1000, color: "#ffffff"],
+                    [value: 1250, color: "#ffffff"],
+                    [value: 1500, color: "#ffffff"],
+                    [value: 2000, color: "#4444FF"],
+                    [value: 2500, color: "#ffffff"],
+                    [value: 3000, color: "#ffffff"],
+                    [value: 3450, color: "#ffffff"]
+                    ]
+             )
 		}
- 			standardTile("push5", "device.button", width: 1, height: 1, decoration: "flat") {
-			state "default", label: "2,000 RPM", backgroundColor: "#ffffff", action: "push5"
+ 		valueTile("push6", "device.carbonDioxide", width: 2, height: 1, decoration: "flat") {
+			state ("default" , label: "2,500 RPM", action: "push6",
+            		 backgroundColors:[    
+                    [value:    0, color: "#ffffff"],
+                    [value: 1000, color: "#ffffff"],
+                    [value: 1250, color: "#ffffff"],
+                    [value: 1500, color: "#ffffff"],
+                    [value: 2000, color: "#ffffff"],
+                    [value: 2500, color: "#4444FF"],
+                    [value: 3000, color: "#ffffff"],
+                    [value: 3450, color: "#ffffff"]
+                    ]
+             )
 		}
- 		standardTile("push6", "device.button", width: 1, height: 1, decoration: "flat") {
-			state "default", label: "2,500 RPM", backgroundColor: "#ffffff", action: "push6"
+ 		valueTile("push7", "device.carbonDioxide", width: 2, height: 1, decoration: "flat") {
+			state ("default" , label: "3,000 RPM", action: "push7",
+            		 backgroundColors:[    
+                    [value:    0, color: "#ffffff"],
+                    [value: 1000, color: "#ffffff"],
+                    [value: 1250, color: "#ffffff"],
+                    [value: 1500, color: "#ffffff"],
+                    [value: 2000, color: "#ffffff"],
+                    [value: 2500, color: "#ffffff"],
+                    [value: 3000, color: "#4444FF"],
+                    [value: 3450, color: "#ffffff"]
+                    ]
+             )
 		}
- 			standardTile("push7", "device.button", width: 1, height: 1, decoration: "flat") {
-			state "default", label: "3,000 RPM", backgroundColor: "#ffffff", action: "push7"
-		}
- 		standardTile("push8", "device.button", width: 1, height: 1, decoration: "flat") {
-			state "default", label: "3,450 RPM", backgroundColor: "#ffffff", action: "push8"
+ 		valueTile("push8", "device.carbonDioxide", width: 2, height: 1, decoration: "flat") {
+			state ("default" , label: "3,450 RPM", action: "push8",
+            		 backgroundColors:[    
+                    [value:     0, color: "#ffffff"],
+                    [value: 1000, color: "#ffffff"],
+                    [value: 1250, color: "#ffffff"],
+                    [value: 1500, color: "#ffffff"],
+                    [value: 2000, color: "#ffffff"],
+                    [value: 2500, color: "#ffffff"],
+                    [value: 3000, color: "#ffffff"],
+                    [value: 3450, color: "#4444FF"]
+                    ]
+             )
 		}
 
-		main (["RPM","WATT","button"])
-		details(["RPM","WATT","switch","push1","push2","push3","push4","push5","push6","push7","push8","refresh"])
+		main (["mainthing"])
+		details(["pump","switch","push2","push3","push4","push5","push6","push7","push8","push1","refresh"])
 	
        
 		}
@@ -175,6 +290,8 @@ def updated() {
     log.debug "Updated !"
     state.RPM = 1    
     log.debug "device.RPM: ${device.RPM}"
+    state.pump = 1    
+    log.debug "device.pump: ${device.pump}"
 }
 
 def initialize() {
@@ -208,6 +325,14 @@ private getRPM() {
         log.debug "RPM request was successful, $response.data"
 
         sendEvent(name: "carbonDioxide", value: response.data.result)
+        //  change the pump state
+        if (response.data.result > 0){
+        sendEvent(name: "pump", value: "on")
+        }
+        if (response.data.result == 0){
+        sendEvent(name: "pump", value: "off")
+        }
+        
     }
 
     httpGet("https://api.particle.io/v1/devices/${deviceId}/${RPMVar}?access_token=${token}", closure)
