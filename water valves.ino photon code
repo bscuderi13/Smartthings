@@ -1,3 +1,4 @@
+// bug fixes
 // added dimmer capability on garden hose
 //---------------------------------------------------------------------------
 // Variables and Pin definitions
@@ -170,6 +171,7 @@ void loop()
   if (ponflag == 1 && pvalvepos == 0) // Pool On
   {
     //reset previous percent in order to turn on to last percent
+    percent = previousPercent;
     previousPercent = 0;
     ponflag = 0;
   }
@@ -273,7 +275,8 @@ calcfillamount = ((poolLevel - pfull) * gpmm);
 if (calcfillamount >= 60 && calcfillamount <= 200)
 {
     autofill = 1;
-    ponflag = 1;
+    percent = 40;
+    previousPercent = 0;
     Particle.publish("poolautofill", "on", PRIVATE);
 }
 }
