@@ -12,27 +12,35 @@
  *  for the specific language governing permissions and limitations under the License.
  *
  */
+
+// user input preferences on settings page
 preferences {
     input name: "deviceId", type: "text", title: "Device ID", required: true
     input name: "token", type: "password", title: "Access Token", required: true
     input name: "RPMVar", type: "text", title: "RPM Variable", required: true, defaultValue: "PumpRPM"
     input name: "wattVar", type: "text", title: "WATT Variable", required: true, defaultValue: "PowerUse"
+    input name: "valve1Func", type: "text", title: "Valve 1 Function", required: true, defaultValue: "floorcleaner"
+    input name: "valve2Func", type: "text", title: "Valve 2 Function", required: true, defaultValue: "aerator"
+    input name: "pumpFunc", type: "text", title: "Pump Speed Function", required: true, defaultValue: "PumpSpeed"
     }
+
+// name the capabilities Attributes and author
 metadata {
 	definition (name: "Simulated Pool Controller", namespace: "brennonsapps", author: "bscuderi") {
 		capability "Actuator"
 		capability "Button"
 		capability "Sensor"
-        attribute "RPM", "number"
-        attribute "pump", "enum"
-       	capability "Power Meter"
+        attribute "auto", "enum"
+        attribute "cleaners", "enum"
+       	attribute "aerator", "enum"
+        attribute "chemical", "enum"
+        capability "Power Meter"
         capability "Polling"
         capability "Refresh"
-        capability "Temperature Measurement"
-        attribute "temperature", "number"
         capability "Carbon Dioxide Measurement"
-        capability "switch"
+        capability "Switch"
 
+// register the custom commands
         command "push1"
         command "push2"
         command "push3"
@@ -41,8 +49,17 @@ metadata {
         command "push6"
         command "push7"
         command "push8"
+        command "autoon"
+        command "autooff"        
+        command "cleanon"
+        command "cleanoff"
+        command "aeratoron"
+        command "aeratoroff"
+        command "chemicalon"
+        command "chemicaloff"
 	}
 
+// I have no clue why this was on the simulated minimote device handler
 	simulator {
 		status "button 1 pushed":  "command: 2001, payload: 01"
 		status "button 5 pushed":  "command: 2001, payload: 15"
@@ -54,23 +71,27 @@ metadata {
 		status "button 8 pushed":  "command: 2001, payload: 8D"
 		status "wakeup":  "command: 8407, payload: "
 	}
-	tiles {
-		     
-        multiAttributeTile(name: "pump", type: "lighting", width: 4, height: 2, canChangeIcon: true) {
-			tileAttribute("device.pump", key: "PRIMARY_CONTROL") {
-				attributeState "on", label: 'On', icon: "st.Health & Wellness.health2", backgroundColor: "#4444FF"
-				attributeState "off", label: 'Off', icon: "st.Health & Wellness.health2", backgroundColor: "#ffffff"
-				
+	
+ // Tiles   
+    tiles {
+// main switch tile with secondary RPM and Power		     
+        multiAttributeTile(name: "switch", type: "lighting", width: 4, height: 2, canChangeIcon: true) {
+			tileAttribute("device.switch", key: "PRIMARY_CONTROL") {
+				attributeState "on", label: 'On', action: "switch.off", icon: "st.Health & Wellness.health2", backgroundColor: "#aaaaff", nextState:"turningOff"
+				attributeState "off", label: 'Off', action: "switch.on", icon: "st.Health & Wellness.health2", backgroundColor: "#ffffff", nextState:"turningOn"
+				// handle state changes so that it waits for a succesful response to turn on and off the switch
+                attributeState "turningOn", label: 'Turning On', action: "switch.off", icon: "st.Health & Wellness.health2", backgroundColor: "#ddddff"
+				attributeState "turningOff", label: 'Turning Off', action: "switch.on", icon: "st.Health & Wellness.health2", backgroundColor: "#888888"
 			}
 			tileAttribute("device.carbonDioxide", key: "SECONDARY_CONTROL") {
-				attributeState "carbonDioxide", label: '${currentValue} RPM'
+				attributeState "carbonDioxide", label: '   ${currentValue} RPM', icon: "https://cdn0.iconfinder.com/data/icons/elite-vehicle-navigation/512/speedometer-512.png"
 			}
              tileAttribute ("device.power", key: "SECONDARY_CONTROL") {
-				attributeState "power", label: '                                                            ${currentValue} Watts'
+				attributeState "power", label: '                                                              ${currentValue} Watts'
 			}
 		}
  
-       
+ // Tile that shows on the things page      
        valueTile("mainthing", "device.carbonDioxide", width: 1, height: 1) {
             state("carbonDioxide", icon: "st.Health & Wellness.health2", label:'${currentValue} RPM',
             	    backgroundColors:[    
@@ -85,21 +106,34 @@ metadata {
                     ]
          )           
         }
-         //not used now with current style layou
-         //valueTile("WATT", "device.power", width: 1, height: 1) {
-         //   state("power", label:'${currentValue} Watts')
-        // }
         
-        standardTile("switch", "device.switch", width: 2, height: 2,  canChangeBackground: true) {
-         		state "on", label: "Auto", action: "switch.off", icon: "st.Health & Wellness.health7", backgroundColor: "#79b821"
-        		state "off", label: "Manual", action: "switch.on", icon: "st.Health & Wellness.health7", backgroundColor: "#ff2222"
+  // Automatic mode virtual switch
+       standardTile("auto", "device.auto", width: 2, height: 2,  canChangeBackground: true) {
+         		state "on", label: "Auto", action: "autooff", icon: "st.Health & Wellness.health7", backgroundColor: "#aaffaa"
+        		state "off", label: "Manual", action: "autoon", icon: "st.Health & Wellness.health7", backgroundColor: "#ffaaaa"
         }
+ // Valve 1 switch      
+       standardTile("cleaners", "device.cleaners", width: 2, height: 2, canChangeBackground: true) {
+         		state "on", label: "Cleaner", action: "cleanoff", icon: "st.Bath.bath9", backgroundColor: "#aaffaa"
+        		state "off", label: "Cleaner", action: "cleanon", icon: "st.Bath.bath9", backgroundColor: "#ffffff"
+        }
+ // Valve 2 switch       
+        standardTile("aerator", "device.aerator", width: 2, height: 2,  canChangeBackground: true) {
+         		state "on", label: "Aerator", action: "aeratoroff", icon: "st.Outdoor.outdoor12", backgroundColor: "#aaffaa"
+        		state "off", label: "Aerator", action: "aeratoron", icon: "st.Outdoor.outdoor12", backgroundColor: "#ffffff"
+        }
+// Chemical Mode virtual switch        
+        standardTile("chemical", "device.chemical", width: 2, height: 2,  canChangeBackground: true) {
+         		state "on", label: "Chemical", action: "chemicaloff", icon: "st.Weather.weather1", backgroundColor: "#aaffaa"
+        		state "off", label: "Chemical", action: "chemicalon", icon: "st.Weather.weather1", backgroundColor: "#ffffff"
+        }
+// Refresh TIle Optional and currently not shown        
         standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 2, height: 1) {
             state "", action:"refresh.refresh", icon:"st.secondary.refresh"
         }
 
-       
- 		valueTile("push1", "device.carbonDioxide", width: 4, height: 1, decoration: "flat") {
+ // Pump Off Button Tile      
+ 		valueTile("push1", "device.carbonDioxide", width: 1, height: 1, decoration: "flat") {
 			state ("default" , label: "OFF", action: "push1",
             backgroundColors:[    
                     [value:    0, color: "#dddddd"],
@@ -113,11 +147,12 @@ metadata {
                     ]
              )
 		}
- 		valueTile("push2", "device.carbonDioxide", width: 2, height: 1, decoration: "flat") {
+ // Pump 1000 button tile		
+        valueTile("push2", "device.carbonDioxide", width: 1, height: 1, decoration: "flat") {
 			state ("default" , label: "1,000 RPM", action: "push2",
             		 backgroundColors:[    
                     [value:    0, color: "#ffffff"],
-                    [value: 1000, color: "#4444FF"],
+                    [value: 1000, color: "#aaaaff"],
                     [value: 1250, color: "#ffffff"],
                     [value: 1500, color: "#ffffff"],
                     [value: 2000, color: "#ffffff"],
@@ -127,12 +162,13 @@ metadata {
                     ]
              )
 		}
- 		valueTile("push3", "device.carbonDioxide", width: 2, height: 1, decoration: "flat") {
+ // Pump 1250 button tile		
+        valueTile("push3", "device.carbonDioxide", width: 1, height: 1, decoration: "flat") {
 			state ("default" , label: "1,250 RPM", action: "push3",
             		 backgroundColors:[    
                     [value:    0, color: "#ffffff"],
                     [value: 1000, color: "#ffffff"],
-                    [value: 1250, color: "#4444FF"],
+                    [value: 1250, color: "#aaaaff"],
                     [value: 1500, color: "#ffffff"],
                     [value: 2000, color: "#ffffff"],
                     [value: 2500, color: "#ffffff"],
@@ -141,13 +177,14 @@ metadata {
                     ]
              )
 		}
- 		valueTile("push4", "device.carbonDioxide", width: 2, height: 1, decoration: "flat") {
+// Pump 1500 button tile 		
+        valueTile("push4", "device.carbonDioxide", width: 1, height: 1, decoration: "flat") {
 			state ("default" , label: "1,500 RPM", action: "push4",
             		 backgroundColors:[    
                     [value:     0, color: "#ffffff"],
                     [value: 1000, color: "#ffffff"],
                     [value: 1250, color: "#ffffff"],
-                    [value: 1500, color: "#4444FF"],
+                    [value: 1500, color: "#aaaaff"],
                     [value: 2000, color: "#ffffff"],
                     [value: 2500, color: "#ffffff"],
                     [value: 3000, color: "#ffffff"],
@@ -155,21 +192,23 @@ metadata {
                     ]
              )
 		}
- 		valueTile("push5", "device.carbonDioxide", width: 2, height: 1, decoration: "flat") {
+// Pump 2000 button tile 		
+        valueTile("push5", "device.carbonDioxide", width: 1, height: 1, decoration: "flat") {
 			state ("default" , label: "2,000 RPM", action: "push5",
             		 backgroundColors:[    
                     [value:     0, color: "#ffffff"],
                     [value: 1000, color: "#ffffff"],
                     [value: 1250, color: "#ffffff"],
                     [value: 1500, color: "#ffffff"],
-                    [value: 2000, color: "#4444FF"],
+                    [value: 2000, color: "#aaaaff"],
                     [value: 2500, color: "#ffffff"],
                     [value: 3000, color: "#ffffff"],
                     [value: 3450, color: "#ffffff"]
                     ]
              )
 		}
- 		valueTile("push6", "device.carbonDioxide", width: 2, height: 1, decoration: "flat") {
+// Pump 2500 button tile 		
+        valueTile("push6", "device.carbonDioxide", width: 1, height: 1, decoration: "flat") {
 			state ("default" , label: "2,500 RPM", action: "push6",
             		 backgroundColors:[    
                     [value:    0, color: "#ffffff"],
@@ -177,13 +216,14 @@ metadata {
                     [value: 1250, color: "#ffffff"],
                     [value: 1500, color: "#ffffff"],
                     [value: 2000, color: "#ffffff"],
-                    [value: 2500, color: "#4444FF"],
+                    [value: 2500, color: "#aaaaff"],
                     [value: 3000, color: "#ffffff"],
                     [value: 3450, color: "#ffffff"]
                     ]
              )
 		}
- 		valueTile("push7", "device.carbonDioxide", width: 2, height: 1, decoration: "flat") {
+// Pump 3000 button tile 		
+        valueTile("push7", "device.carbonDioxide", width: 1, height: 1, decoration: "flat") {
 			state ("default" , label: "3,000 RPM", action: "push7",
             		 backgroundColors:[    
                     [value:    0, color: "#ffffff"],
@@ -192,12 +232,13 @@ metadata {
                     [value: 1500, color: "#ffffff"],
                     [value: 2000, color: "#ffffff"],
                     [value: 2500, color: "#ffffff"],
-                    [value: 3000, color: "#4444FF"],
+                    [value: 3000, color: "#aaaaff"],
                     [value: 3450, color: "#ffffff"]
                     ]
              )
 		}
- 		valueTile("push8", "device.carbonDioxide", width: 2, height: 1, decoration: "flat") {
+// Pump 3450 button tile 		
+        valueTile("push8", "device.carbonDioxide", width: 1, height: 1, decoration: "flat") {
 			state ("default" , label: "3,450 RPM", action: "push8",
             		 backgroundColors:[    
                     [value:     0, color: "#ffffff"],
@@ -207,150 +248,218 @@ metadata {
                     [value: 2000, color: "#ffffff"],
                     [value: 2500, color: "#ffffff"],
                     [value: 3000, color: "#ffffff"],
-                    [value: 3450, color: "#4444FF"]
+                    [value: 3450, color: "#aaaaff"]
                     ]
              )
 		}
 
-		main (["mainthing"])
-		details(["pump","switch","push2","push3","push4","push5","push6","push7","push8","push1","refresh"])
+// Show what tiles are shown and in what order		
+        main (["mainthing"])
+		details(["switch","auto","cleaners","aerator","chemical","push2","push3","push4","push5","push6","push7","push8","push1"])
 	
        
 		}
 
 }
 
+// I do not think that this is required
 def parse(String description) {
     def pair = description.split(":")
 
     createEvent(name: pair[0].trim(), value: pair[1].trim())
 }
 
+// command that happens if I push1
 def push1() {
     put(0)
     push(1)
     refresh()
 }
 
+// command that happens if I push2
 def push2() {
 	put(1)
     push(2)
     refresh()
 }
 
+// command that happens if I push3
 def push3() {
 	put(2)
     push(3)
     refresh()
 }
 
+// command that happens if I push4
 def push4() {
     put(3)
     push(4)
     refresh()
 }
 
+// command that happens if I push5
 def push5() {
 	put(4)
     push(5)
     refresh()
 }
 
+// command that happens if I push6
 def push6() {
 	put(5)
     push(6)
     refresh()
 }
 
+// command that happens if I push7
 def push7() {
 	put(6)
     push(7)
     refresh()
 }
 
+// command that happens if I push1
 def push8() {
 	put(7)
     push(8)
     refresh()
 }
 
+// cleaners on and off command
+def cleanon() {
+    //sendcleaner(1)  //uncomment to actually send the command I just want it to act as a virtual switch
+    sendEvent(name: "cleaners", value: "on")
+}
+def cleanoff() {
+    //sendcleaner(0)  //uncomment to actually send the command I just want it to act as a virtual switch
+    sendEvent(name: "cleaners", value: "off")
+    refresh()
+}
+
+// aeraotor on and offcommand
+def aeratoron() {
+    //sendaerator(1)   //uncomment to actually send the command I just want it to act as a virtual switch
+    sendEvent(name: "aerator", value: "on")
+}
+def aeratoroff() {
+    //sendaerator(0)   //uncomment to actually send the command I just want it to act as a virtual switch
+    sendEvent(name: "aerator", value: "off")
+}
+
+// chemical mode virtual switch
+def chemicalon() {
+    sendEvent(name: "chemical", value: "on")
+}
+def chemicaloff() {
+    sendEvent(name: "chemical", value: "off")
+}
+// auto manual mode virtual switch
+def autoon() {
+    sendEvent(name: "auto", value: "on")
+}
+def autooff() {
+    sendEvent(name: "auto", value: "off")
+}
 private push(button) {
 	log.debug "$device.displayName button $button was pushed"
 	sendEvent(name: "button", value: "pushed", data: [buttonNumber: button], descriptionText: "$device.displayName button $button was pushed", isStateChange: true)
 }
 
-
+// required to boot
 def installed() {
 	initialize()
 }
 
+// required to boot and store variables
 def updated() {
 	initialize()
-    // attempted fix
-    log.debug "Updated !"
-    state.RPM = 1    
-    log.debug "device.RPM: ${device.RPM}"
-    state.pump = 1    
-    log.debug "device.pump: ${device.pump}"
+    // custom atributes storage
+    state.auto = 1    
+    log.debug "device.auto: ${device.auto}"
+    state.cleaners = 1    
+    log.debug "device.cleaners: ${device.cleaners}"
+    state.aerator = 1    
+    log.debug "device.aerator: ${device.aerator}"
+    state.chemical = 1    
+    log.debug "device.chemical: ${device.chemical}"
 }
 
+// register the device having the desired amount of buttons
 def initialize() {
 	sendEvent(name: "numberOfButtons", value: 8)
 }
 
-
+// what to do if the device is polled
 def poll() {
     log.debug "Executing 'poll'"
     getWATT()
     getRPM()
 }
 
+// what to do if the decice is refreshed
 def refresh() {
     log.debug "Executing 'refresh'"
     getWATT()
     getRPM()
 }
     
+// what to do if the main switch is turned on and off
 def on() {
-	sendEvent(name: 'switch', value: 'on')
+    push8()
 }
-
 def off() {
-sendEvent(name: 'switch', value: 'off')
+    push1()
 }
 
-// get pool pump RPM
+// get pool pump RPM from Particle
 private getRPM() {
+    // handle and store the data of the return
     def closure = { response ->
         log.debug "RPM request was successful, $response.data"
-
         sendEvent(name: "carbonDioxide", value: response.data.result)
-        //  change the pump state
+        //  change the switch state if a power setting over 0 is set
         if (response.data.result > 0){
-        sendEvent(name: "pump", value: "on")
+        sendEvent(name: "switch", value: "on")
         }
         if (response.data.result == 0){
-        sendEvent(name: "pump", value: "off")
+        sendEvent(name: "switch", value: "off")
         }
         
     }
-
-    httpGet("https://api.particle.io/v1/devices/${deviceId}/${RPMVar}?access_token=${token}", closure)
+    httpGet("https://api.particle.io/v1/devices/${deviceId}/${RPMVar}?access_token=${token}", closure)  // what actually gets sent and returned from Particle
 }
+
+// get pool pump Power from particle
 private getWATT() {
+    // handle and store the data of the return
     def closure = { response ->
         log.debug "WATT request was successful, $response.data"
-
         sendEvent(name: "power", value: response.data.result)
     }
 
-    httpGet("https://api.particle.io/v1/devices/${deviceId}/${wattVar}?access_token=${token}", closure)
+    httpGet("https://api.particle.io/v1/devices/${deviceId}/${wattVar}?access_token=${token}", closure)   // what actually gets sent and returned from Particle
 }
 
-// Send a button push to pump
+// Send a button push to particle
 private put(button) {
 	httpPost(
-		uri: "https://api.particle.io/v1/devices/${deviceId}/PumpSpeed",
+		uri: "https://api.particle.io/v1/devices/${deviceId}/${pumpFunc}",
         body: [access_token: token, command: button],  
+	) {response -> log.debug (response.data)}
+}
+
+// Send a switch 1 change to particle if enabled above
+private sendcleaner(state) {
+	httpPost(
+		uri: "https://api.particle.io/v1/devices/${deviceId}/${valve1Func}",
+        body: [access_token: token, command: state],  
+	) {response -> log.debug (response.data)}
+}
+
+// Send a switch 2 change to particle if enabled above
+private sendaerator(state) {
+	httpPost(
+		uri: "https://api.particle.io/v1/devices/${deviceId}/${valve2Func}",
+        body: [access_token: token, command: state],  
 	) {response -> log.debug (response.data)}
 }
