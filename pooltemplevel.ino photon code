@@ -1,3 +1,6 @@
+SYSTEM_MODE(SEMI_AUTOMATIC);    // take control of the wifi behavior to avoid battery dying when wifi is down
+SYSTEM_THREAD(ENABLED);    // enable so loop and setup run immediately as well as allows wait for to work properly for the timeout
+
 // This #include statement was automatically added by the Particle IDE.
 #include <OneWire.h>
 
@@ -14,8 +17,24 @@ VL53L0X sensor;
 #define tground    D4
 
 // global variables
-int mm = -777;
 int tries = 0;
+float averagetemp = 0;
+int averagelevel = 0;
+
+// variables for temperature smoothing
+float goodtemp1 = 0;
+float goodtemp2 = 0;
+float goodtemp3 = 0;
+float goodtemp4 = 0;
+int tempattempt = 1;
+
+// variables for level smoothing
+int mm = 0;
+int mm1 = 0;
+int mm2 = 0;
+int mm3 = 0;
+int mm4 = 0;
+int levelattempt =1;
 
 // one wire temp variables
 OneWire ds = OneWire(D5);  //** 1-wire signal on pin D5
@@ -41,17 +60,22 @@ void setup()
   Wire.begin();
   sensor.init();
   sensor.setTimeout(500);
- 
+  delay(2500); // delay 2.5 secodns to allow sensor time to boot before taking a reading this is to eliminate the 185 temp error also allows time to store sensor in a manual boot
 #if defined HIGH_ACCURACY
   // increase timing budget to 200 ms
   sensor.setMeasurementTimingBudget(200000);
 #endif
+
+// connect to the cloud
+Particle.connect();    // attempt to connect to the cloud
+if(!waitFor(Particle.connected, 30000)){   // if it takes longer than 30 seconds sleep anyways without sending message to conserve battery
+System.sleep(SLEEP_MODE_DEEP, 14400);
+}
 }
 
 void loop()
 {
   //** Temp Probe loop basically all the temperature code copy pasted from the example code from the library
-  delay(1000); // delay one second to allow sensor time to boot before taking a reading this is to eliminate the 185 temp error
   byte i;
   byte present = 0;
   byte type_s;
@@ -127,19 +151,101 @@ void loop()
   }
   fahrenheit = celsius * 1.8 + 32.0;
   lastTemp = celsius;
-  String ptemp = String(fahrenheit);
+  
+  // my addition to smooth temperature take four samples
+  if (tempattempt == 1){
+    if (fahrenheit > 35 && fahrenheit < 100 && fahrenheit != 185){
+       goodtemp1 = fahrenheit;
+       tempattempt ++;
+    }
+  }
+   if (tempattempt == 2){
+    if (fahrenheit > 35 && fahrenheit < 100 && fahrenheit != 185){
+       goodtemp2 = fahrenheit;
+       tempattempt++;
+    }
+  }
+   if (tempattempt == 3){
+    if (fahrenheit > 35 && fahrenheit < 100 && fahrenheit != 185){
+       goodtemp3 = fahrenheit;
+       tempattempt++;
+    }
+  }
+   if (tempattempt == 4){
+    if (fahrenheit > 35 && fahrenheit < 100 && fahrenheit != 185){
+       goodtemp4 = fahrenheit;
+       tempattempt++;
+    
+       // find max
+       float max1v2t = max(goodtemp1, goodtemp2);
+       float max3v4t = max(goodtemp3, goodtemp4);
+       float maxt = max(max1v2t, max3v4t);
+       // find min
+       float min1v2t = min(goodtemp1, goodtemp2);
+       float min3v4t = min(goodtemp3, goodtemp4);
+       float mint = min(min1v2t, min3v4t);
+    
+       averagetemp = (((goodtemp1 + goodtemp2 + goodtemp3 + goodtemp4) - (maxt) - (mint)) / 2);     // take away the max and min and average two middle numbers
+    
+       // publish string for eror checking
+       String data = String(goodtemp1) + ", " + String(goodtemp2) + ", " + String(goodtemp3) + ", " + String(goodtemp4) + ", " + String(maxt) + ", " + String(mint) + ", " + String(averagetemp);
+       Particle.publish("T1234xmav", data, PRIVATE); 
+    }
+  }
+  
+  // Take lidar readings 
+  // filter the data to smooth eroneous distances
+  if (levelattempt == 1){
+      mm = sensor.readRangeSingleMillimeters();
+      if (mm > 50 && mm < 160){
+          mm1 = mm;
+          levelattempt++;  
+      }
+  }
+   if (levelattempt == 2){
+       mm = sensor.readRangeSingleMillimeters();
+       if (mm > 50 && mm < 160){
+          mm2 = mm;
+          levelattempt++;
+      }
+  }
+   if (levelattempt == 3){
+       mm = sensor.readRangeSingleMillimeters();
+       if (mm > 50 && mm < 160){
+          mm3 = mm;
+          levelattempt++;
+        }
+   }
+   if (levelattempt == 4){
+       mm = sensor.readRangeSingleMillimeters();
+       if (mm > 50 && mm < 160){
+          mm4 = mm;
+          levelattempt++;
+         //find max
+         int max1v2l = max(mm1, mm2);
+         int max3v4l = max(mm3, mm4);
+         int maxl = max(max1v2l, max3v4l);
+         // find min
+         int min1v2l = min(mm1, mm2);
+         int min3v4l = min(mm3, mm4);
+         int minl = min(min1v2l, min3v4l);
+    
+         averagelevel = (((mm1 + mm2 + mm3 + mm4) - (maxl) - (minl)) / 2);      // take away max and min and average two middle readings
+    
+        // for error checking
+        String data2 = String(mm1) + ", " + String(mm2) + ", " + String(mm3) + ", " + String(mm4) + ", " + String(maxl) + ", " + String(minl) + ", " + String(averagelevel); 
+        Particle.publish("L1234xmav", data2, PRIVATE);
+        }
+    }
  
- // LIDAR take a reading
-  mm = sensor.readRangeSingleMillimeters();
-
  // Publish the results and shutoff sensors if you get good data
-  if(mm > 75 && mm < 2000 && fahrenheit != 185)
+  if(tempattempt >= 4 && levelattempt >= 4 && averagelevel > 50 && averagelevel < 160 && averagetemp != 185 && averagetemp > 35 && averagetemp < 100)
   {
   digitalWrite(ppin, LOW);
   digitalWrite(tppin, LOW);
-  Particle.publish("CurrentTemperature", ptemp, PRIVATE);
+  Particle.publish("CurrentTemperature", String(averagetemp), PRIVATE);
   delay (2000);
-  Particle.publish("waterlevel" , String(mm), PRIVATE);
+  Particle.publish("waterlevel" , String(averagelevel), PRIVATE);
   delay (2000);
   System.sleep(SLEEP_MODE_DEEP, 14400);
   }
@@ -147,8 +253,8 @@ void loop()
   {
   tries++;  // track failed attempts
   }
-  // if it fails to get a good level after 4 tries send an error message and sleep anyways
-  if (tries == 4)
+  // if it fails to get a good level after 10 loops send an error message and sleep anyways
+  if (tries == 10)
   {
   digitalWrite(ppin, LOW);
   digitalWrite(tppin, LOW);
