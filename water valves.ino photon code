@@ -1,60 +1,52 @@
-// bug fixes
-// added dimmer capability on garden hose
 //---------------------------------------------------------------------------
 // Variables and Pin definitions
 //---------------------------------------------------------------------------
 
+// pool assigned flow sensor1
+// Sensor 2 not assigned
+
 // Other Variable types
-volatile unsigned int TPulseCountm = 0;
-volatile unsigned int TPulseCountp = 0;
+volatile unsigned int TPulseCount1 = 0;
+volatile unsigned int TPulseCount2 = 0;
 
 // pulses per liter of the flow sensorsw
 const float pulsesPerLiter = 477;
 
 // Define Pins
-#define WATER_SENSORm	D5	
-#define WATER_SENSORp	D4	
-#define misteron  D0
-#define misteroff  D1
-#define poolon  D2
-#define pooloff  D3
+#define WATER_SENSOR1	D5	
+#define WATER_SENSOR2	D4	
+#define poolon          D0
+#define misteron        D1
+#define future1         D2
+#define future2         D3
 
 // Variable Define Intergers
-int totalgm = 0;
-int totalgp = 0;
-int previousgp = 0;
-int mvalvepos = 0;
-int monflag = 0;
-int moffflag = 0;
-int pvalvepos = 0;
-int ponflag = 0;
-int poffflag = 0;
+int totalg2 = 0;
+int totalg1 = 0;
+int previousg1 = 0;
 int voltprotect = 0;
 int autofill = 0;
 float poolLevel = 0;
-int pfull = 125;
+int pfull = 90;   //previously 110 before pool robot and 95 before rewire 85 before i removed grommet
 int pLow = 160;
 float gpmm = 13;  //previously 8.33 
 int fillPercent = 0;
 int calcfillamount = 0;
-double percent = 0;
-double previousPercent = 0;
-double seconds = 0;
 
 //-----------------------------------------------------------------------------
 // Water Sensor interrupts
 //-----------------------------------------------------------------------------
 
 // Increment the water pulse counter for misters
-void WaterPulseCounterm(void)
+void WaterPulseCounter1(void)
 {
-	TPulseCountm++;
+	TPulseCount1++;
 }
 
 // Increment the water pulse counter for pool
-void WaterPulseCounterp(void)
+void WaterPulseCounter2(void)
 {
-	TPulseCountp++;
+	TPulseCount2++;
 }
 
 //-------------------------------------------------------------------------------
@@ -63,38 +55,36 @@ void WaterPulseCounterp(void)
 void setup()
 {
 // Cloud Based Variables  
-  Particle.variable("totalgm", totalgm);
-  Particle.variable("totalgp", totalgp);
+  Particle.variable("totalg1", totalg1);
+  Particle.variable("totalg2", totalg2);
 // Set output pins for relays  
   pinMode(misteron, OUTPUT);
-  pinMode(misteroff, OUTPUT);
   pinMode(poolon, OUTPUT);
-  pinMode(pooloff, OUTPUT);
 // set pin for voltage detector
   pinMode(D6, INPUT_PULLDOWN);
   pinMode(D7, OUTPUT);
 // Set pins to high for all relays off  
   digitalWrite(misteron, HIGH);
-  digitalWrite(misteroff, HIGH);
   digitalWrite(poolon, HIGH);
-  digitalWrite(pooloff, HIGH);
+  digitalWrite(future1, HIGH);
+  digitalWrite(future2, HIGH);
+  
 // Set ground pins for volatage detector
   digitalWrite(D7, LOW);
 // Set Digital pin WATER_SENSOR_PINT to INPUT mode and set
 // interrupt vector (water flow sensor) for FALLING edge interrupt
-  pinMode(WATER_SENSORm, INPUT);
-  pinMode(WATER_SENSORp, INPUT);
-  attachInterrupt(WATER_SENSORm, WaterPulseCounterm, FALLING);
-  attachInterrupt(WATER_SENSORp, WaterPulseCounterp, FALLING);
+  pinMode(WATER_SENSOR1, INPUT);
+  pinMode(WATER_SENSOR2, INPUT);
+  attachInterrupt(WATER_SENSOR1, WaterPulseCounter1, FALLING);
+  attachInterrupt(WATER_SENSOR2, WaterPulseCounter2, FALLING);
 // Cloud Based Functions
   Particle.function("misteron", misteronfunc);
   Particle.function("poolon", poolonfunc);
-   Particle.function("percenton", percentfunc);
+// Cloud Subscriptions
   Particle.subscribe("waterlevel", levelHandler, MY_DEVICES);
+// Cloud Variables 
   Particle.variable("PoolLevel", fillPercent);
   Particle.variable("CalcFill", calcfillamount);
-  Particle.variable("Seconds", seconds);
-  Particle.variable("Percent", percent);
 }
 
 //--------------------------------------------------------------------------------
@@ -103,95 +93,21 @@ void setup()
 
 void loop()
 {
-// Variable Calculations For Total Gallons  
-  totalgm = ((TPulseCountm / pulsesPerLiter)) / 3.79;
-  totalgp = ((TPulseCountp / pulsesPerLiter)) / 3.79;
+// Variable Calculations For  Total Gallons  
+  totalg1 = ((TPulseCount1 / pulsesPerLiter)) / 3.79;
+  totalg2 = ((TPulseCount2 / pulsesPerLiter)) / 3.79;
 
-// checks if it changed to cue update in smartthings
-  if (totalgp != previousgp){
-    Particle.publish("gallonshose", "refresh", PRIVATE);
-    previousgp = totalgp;
+// checks if gallons changed to cue update in smartthings
+  if (totalg1 != previousg1){
+    Particle.publish("gallonspool", "refresh", PRIVATE);
+    previousg1 = totalg1;
     }
   
-// checks for a percent change
-  if (percent != previousPercent)
-  {
-    double calcsec = (1000 * (3.5 * (percent / 100) ) );
-    double cursec = (1000 * (3.5 * (previousPercent / 100) ) );
-   
-    // if the valve hasa percentage increases open valve the right amount
-    if ((calcsec - cursec) > 0)
-    {
-      seconds = (calcsec - cursec);
-      digitalWrite(pooloff, HIGH);
-      delay (500);
-      digitalWrite(poolon, LOW);
-      delay (seconds);
-      digitalWrite(poolon, HIGH);
-      previousPercent = percent;
-      pvalvepos = 1;
-    }
-    // if the valve is already on and percentage decreases close slightly to achieve value
-    if (pvalvepos == 1 && ((calcsec - cursec) < 0) && percent != 0)
-    {
-      seconds = (cursec - calcsec);
-      digitalWrite(poolon, HIGH);
-      delay (500);
-      digitalWrite(pooloff, LOW);
-      delay (seconds);
-      digitalWrite(pooloff, HIGH);
-      previousPercent = percent;
-    }
-  
-  }
-// Flags To Activate Relays
-  if (monflag == 1 && mvalvepos == 0) // Misters On
-  {
-    TPulseCountm = 0;
-    digitalWrite(misteroff, HIGH);
-    delay (500);
-    digitalWrite(misteron, LOW);
-    delay (4200);
-    digitalWrite(misteron, HIGH);
-    monflag = 0;
-    mvalvepos = 1;
-  }
-  
-  if (moffflag == 1 && mvalvepos == 1)  // Misters Off
-  {
-    digitalWrite(misteron, HIGH);
-    delay (500);
-    digitalWrite(misteroff, LOW);
-    delay (5000);
-    digitalWrite(misteroff, HIGH);
-    moffflag = 0;
-    mvalvepos = 0;
-  }
- 
-  if (ponflag == 1 && pvalvepos == 0) // Pool On
-  {
-    //reset previous percent in order to turn on to last percent
-    percent = previousPercent;
-    previousPercent = 0;
-    ponflag = 0;
-  }
-  
-  if (poffflag == 1 && pvalvepos ==1)  // Pool Off
+// pool fill auto shutoff  
+  if (totalg1 >= calcfillamount && autofill == 1)  // pool auto shutoff at fill amount
   {
     digitalWrite(poolon, HIGH);
-    delay (500);
-    digitalWrite(pooloff, LOW);
-    delay (5000);
-    digitalWrite(pooloff, HIGH);
-    poffflag = 0;
-    pvalvepos = 0;
-    TPulseCountp = 0;
-  }
-  
-  if (totalgp >= calcfillamount && autofill == 1)  // pool auto shutoff at fill amount
-  {
-    poffflag = 1;
-    TPulseCountp = 0;
+    TPulseCount1 = 0;
     autofill = 0;
     calcfillamount = 0;
     fillPercent = 100;
@@ -203,18 +119,10 @@ int volt = digitalRead(D6);
   {
       Particle.publish("powerloss", "yes", PRIVATE);
       voltprotect = 1;
-      if (mvalvepos == 1)
-      {
-      digitalWrite(misteroff, LOW);
-      delay (7000);
-      digitalWrite(misteroff, HIGH);
-      }
-      if (pvalvepos == 1)
-      {
-      digitalWrite(pooloff, LOW);
-      delay (7000);
-      digitalWrite(pooloff, HIGH);
-      }
+      digitalWrite(poolon, HIGH);
+      digitalWrite(misteron, HIGH);
+      digitalWrite(future1, HIGH);
+      digitalWrite(future2, HIGH); 
   }
   if (volt == HIGH && voltprotect == 1)
   {
@@ -231,12 +139,12 @@ int misteronfunc(String command)
 {
   if (command == "1") 
     {
-    monflag = 1;
+    digitalWrite(misteron, LOW);
     return 1;
     } 
-  else 
+  if (command == "0")
     {               
-    moffflag = 1;
+   digitalWrite(misteron, HIGH);
     return 0;
     }
 }
@@ -245,27 +153,19 @@ int poolonfunc(String command)
 {
   if (command == "1") 
     {   
-    ponflag = 1;
+    TPulseCount1 = 0;
+    digitalWrite(poolon, LOW);
     return 1;
     } 
   else 
     {               
-    poffflag = 1;
+    digitalWrite(poolon, HIGH);
+    TPulseCount1 = 0;
     return 0;
     }
 }
 
-int percentfunc(String command)
-{
-  if (command == "0")
-  {
-    poffflag = 1;
-  }
-  else {
-  percent =  atof (command);
-  return percent;
-  }
-}
+
 // Level Handler
 void levelHandler(const char *event, const char *data)
 {
@@ -275,8 +175,7 @@ calcfillamount = ((poolLevel - pfull) * gpmm);
 if (calcfillamount >= 60 && calcfillamount <= 200)
 {
     autofill = 1;
-    percent = 40;
-    previousPercent = 0;
+    digitalWrite(poolon, LOW);
     Particle.publish("poolautofill", "on", PRIVATE);
 }
 }
