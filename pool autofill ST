@@ -1,0 +1,77 @@
+metadata {
+	definition (name: "poolautofill", namespace: "brennonsapps", author: "bscuderi") {
+        capability "Actuator"
+        capability "Sensor"
+        capability "Polling"
+        capability "Refresh"
+        capability "switch"
+        attribute "gal", "number"
+	}
+ 
+preferences {
+    input("token", "password", title: "Access Token")
+    input("deviceId", "text", title: "Device ID")
+    input name: "GallonsVar", type: "text", title: "Gallons Variable", required: true, defaultValue: "totalg1"
+    }
+ 
+ 
+
+    // tile definitions
+tiles {
+
+multiAttributeTile(name: "switch", type: "lighting", width: 4, height: 2, canChangeIcon: true) {
+			tileAttribute("device.switch", key: "PRIMARY_CONTROL") {
+				attributeState "on", label: 'On', action: "switch.off", icon: "st.switches.switch.on", backgroundColor: "#aaaaff"
+				attributeState "off", label: 'Off', action: "switch.on", icon: "st.switches.switch.off", backgroundColor: "#ffffff"
+			}
+			tileAttribute("device.gal", key: "SECONDARY_CONTROL") {
+			attributeState "gal", label: '${currentValue} Gallons'
+            }
+}	   
+        main "switch"
+		details(["switch", "gal", "refresh"])
+	}
+}
+
+def parse(String description) {
+	log.error "This device does not support incoming events"
+	return null
+}
+
+def on() {
+	put '1'
+    sendEvent(name: 'switch', value: 'on')
+}
+
+def off() {
+	put '0'
+    sendEvent(name: 'switch', value: 'off')
+}
+
+private put(relaystate) {
+    //particle API Call
+	httpPost(
+		uri: "https://api.particle.io/v1/devices/${deviceId}/poolon",
+        body: [access_token: token, command: relaystate],  
+	) {response -> log.debug (response.data)}
+}
+private getGallons() {
+    def closure = { response ->
+        log.debug "Gallons request was successful, $response.data"
+
+        sendEvent(name: "gal", value: response.data.result)
+    }
+
+    httpGet("https://api.particle.io/v1/devices/${deviceId}/${GallonsVar}?access_token=${token}", closure)
+}
+
+def updated() {
+    log.debug "Updated !"
+    state.gal = 1    
+    log.debug "device.gal: ${device.gal}"
+}
+
+def refresh() {
+    log.debug "Executing 'refresh'"
+    getGallons()
+}
