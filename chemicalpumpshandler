@@ -1,0 +1,107 @@
+
+metadata {
+	definition (name: "chempumps", namespace: "brennonsapps", author: "bscuderi") {
+        capability "Actuator"
+        capability "Sensor"
+        capability "Polling"
+        capability "Refresh"
+        capability "switch"
+    // register custom commands    
+        command "senddailychlorine"
+        command "senddailyacid"
+        command "sendmanualchlorine"
+        command "sendmanualacid"
+        command "setswitchstateacid"
+        command "setswitchstatechlorine"
+        command "setswitchstateoff"
+	}
+// inputs for settings to allow changing custom run times 
+preferences {
+    input("token", "password", title: "Access Token")
+    input("deviceId", "text", title: "Device ID")
+    input name: "Cruntime", type: "number", title: "Chlorine Daily Run Time (minutes)", required: true, defaultValue: "20"
+    input name: "Aruntime", type: "number", title: "Acid Daily Run Time (minutes)", required: true, defaultValue: "10"
+    input name: "Cmanruntime", type: "number", title: "Chlorine Manual Run Time", required: true, defaultValue: "0"
+    input name: "Amanruntime", type: "number", title: "Acid Manual Run Time", required: true, defaultValue: "0"    
+    }
+ 
+ 
+
+    // tile definitions
+tiles {
+
+// main tile
+multiAttributeTile(name:"blank", type: "lighting", width: 6, height: 4, decoration: "flat"){
+			tileAttribute ("device.switch", key: "PRIMARY_CONTROL") {
+				attributeState "off", label: "Off" , backgroundColor: "#ffffff"
+        		attributeState "chlorine", label: "Chlorine Pump On" , backgroundColor: "#4444bb"
+                attributeState "acid", label: "Acid Pump On" , backgroundColor: "#bb4444"
+			}
+}
+
+// buttons to send the data from settings page to the device
+standardTile("dailychlorine", "device.switch", width:3, height: 2, canChangeBackground: true, decoration: "flat") {
+         		state "default", label: "daily chlorine" , action: "senddailychlorine", backgroundColor: "#ffffff"
+        }
+standardTile("dailyacid", "device.switch", width: 3, height: 2, canChangeBackground: true, decoration: "flat") {
+         		state "default", label: "daily acid" , action: "senddailyacid", backgroundColor: "#ffffff"
+        }
+standardTile("manualchlorine", "device.switch", width: 3, height: 2, canChangeBackground: true, decoration: "flat") {
+         		state "default", label: "manual chlorine" , action: "sendmanualchlorine", backgroundColor: "#ffffff"
+        }       
+standardTile("manualacid", "device.switch", width: 3, height: 2, canChangeBackground: true, decoration: "flat") {
+         		state "default", label: "manual acid" , action: "sendmanualacid", backgroundColor: "#ffffff"
+        }
+            
+        main "blank"
+        details(["blank","dailychlorine","dailyacid","manualchlorine","manualacid"])
+	}
+}
+
+
+
+// functions to talk to particle
+def senddailychlorine() {
+    log.debug "sent daily chlorine"
+    httpPost(
+		uri: "https://api.particle.io/v1/devices/${deviceId}/Cdaily",
+        body: [access_token: token, command: Cruntime],  
+	) {response -> log.debug (response.data)}
+}
+
+def senddailyacid() {
+    log.debug "sent daily acid"
+    httpPost(
+		uri: "https://api.particle.io/v1/devices/${deviceId}/Aciddaily",
+        body: [access_token: token, command: Aruntime],  
+	) {response -> log.debug (response.data)}
+}
+
+def sendmanualchlorine() {
+    log.debug "sent manual chlorine"
+    httpPost(
+		uri: "https://api.particle.io/v1/devices/${deviceId}/Cmanual",
+        body: [access_token: token, command: Cmanruntime],  
+	) {response -> log.debug (response.data)}
+}
+
+def sendmanualacid() {
+    log.debug "sent manual chlorine"
+    httpPost(
+		uri: "https://api.particle.io/v1/devices/${deviceId}/Amanual",
+        body: [access_token: token, command: Amanruntime],  
+	) {response -> log.debug (response.data)}
+}
+
+// functions to change the switch state in smartthings when the photon sends a webhook after particlepublish webcore calls this command to show the switch position in smartthings this is due to the scheduling of pumps being local on the photon this just makes it so you can see currnet state in smartthings
+def setswitchstatechlorine() {
+sendEvent(name: "switch", value: "chlorine")
+}
+
+def setswitchstateacid() {
+sendEvent(name: "switch", value: "acid")
+}
+
+def setswitchstateoff() {
+sendEvent(name: "switch", value: "off")
+}
