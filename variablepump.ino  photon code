@@ -2,6 +2,9 @@
 #include <OneWire.h>  //For Temp Sensor include this library
 
 STARTUP(WiFi.selectAntenna(ANT_EXTERNAL)); // Use external antenna
+SYSTEM_MODE(SEMI_AUTOMATIC);    // take control of the wifi behavior to avoid cloud bogging down local functions
+SYSTEM_THREAD(ENABLED);    // enable so loop and setup run immediately as well as allows wait for to work properly for the timeout of wifi
+
 
 // define pin names for easier reference in the code
 #define pPumpRelay1     D4
@@ -43,6 +46,14 @@ bool aeratorautorun = false;
 
 //  Variables for Pool Light
 char ccFlag = 0;
+int lightposition = 11;
+int changecycles = 0;
+int delayamount = 800;  //delay amounnt in ms to achieve smooth pool light color change
+bool ontime45 = true;
+bool offtime45 = true;
+bool weirdway = false;
+int tlightchangedon = (Time.now() - 65);
+int tlightchangedoff = (Time.now() - 65);
 
 //  Variables for chemical pumps
 int Cdailyruntime = 0;
@@ -60,11 +71,29 @@ int secCoff = 0;
 int secAoff = 0;
 int previousminute = 61;
 bool minutechange = false;
+int setting1 = 3600;  // second setting 1 happens
+int setting2 = 23400;  // second that setting 2 happens
+int setting3 = 28800; // second that setting 3 happens
+int setting4 = 54000; // second that setting 4 happens
+int setting5 = 72000;  // second that setting 5 happens
+int setting6 = 84600;  // second setting 6 happens
 
 // auto mode variable
 bool automode = true;
+bool autoFlag = false;
+
+// cloud connected variable
+bool cloudconnected = false;
+int discTime = -1;
+int discUTC = -1;
+int rssi = 0;
 
 void setup() {
+Particle.connect();    // attempt to connect to the cloud
+waitFor(Particle.connected, 30000); // allow 30 seconds to conncect
+if (Particle.connected()){   // check if connection is true than set the variable to true
+cloudconnected = true;
+}
 // Set Timezone
   Time.zone(-7);
 // Set Pump Pins to Outputs
@@ -122,6 +151,8 @@ void setup() {
   Particle.variable("AcidDaily", Adailyruntime);
   Particle.variable("ChlorManual", Cmanualruntime);
   Particle.variable("AcidManual", Amanualruntime);
+// Cloud Variable for RSSI
+  Particle.variable("RSSI", rssi);
 
 //** temp pin setup
   pinMode(tempPower, OUTPUT); //** power temp sensor
@@ -132,13 +163,50 @@ void setup() {
 // start valve position at cleaner off so easier to track  
   mainsOn(); // default mains on
   Particle.publish("cleaners", "off", PRIVATE); // let smartthings know to update valve position
+  resumeschedule();
 }
 
 void loop() {
+// check if Im connected
+if (!Particle.connected() && cloudconnected == true){   // check once a loop for a disconnect if its not connected and the variable says it is
+  Particle.connect();  // try and connect
+  if(!waitFor(Particle.connected, 7000)){   // if it takes longer than 7 seconds run disconnect and move on but schedule a re connect attempt
+  Particle.disconnect();
+  cloudconnected = false;
+  discTime = Time.local() % 86400;  // note the disconnect time
+  discUTC = Time.now();  // note the time from utc to easily schedule reattempt
+  }
+  if (Particle.connected()){    // if the reconnect attempt worked change the variable
+  cloudconnected = true;
+  Particle.publish("cloudreconnect", String(discTime), PRIVATE); // let me know it went down and had to reconnect this way
+  Particle.publish("refresh", "true", PRIVATE); // refresh all the shit too 
+  rssi = WiFi.RSSI();
+  }
+}
+
+// scheduled reconnects
+int curSec = Time.now();
+int tsinceDisc = (curSec - discUTC);
+ 
+if (cloudconnected == false && tsinceDisc >= 30){
+   Particle.connect();
+   if(!waitFor(Particle.connected, 7000)){   // if it takes longer than 7 seconds run disconnect and move on but schedule a re connect attempt
+   Particle.disconnect();
+   cloudconnected = false;
+   discUTC = Time.now(); // restart the counter for a recheck but leave the second of the day timestamp alone for accurate tracking
+   }
+   if (Particle.connected()){    // if the reconnect attempt worked change the variable
+   cloudconnected = true;
+   Particle.publish("cloudreconnect", String(discTime), PRIVATE); // let me know it went down and had to reconnect this way
+   Particle.publish("refresh", "true", PRIVATE); // refresh all the shit too 
+  }
+   
+}
+
   // check time for schedul based functions
   checktime();
   
-  //** temp loop code checks the time and decides if we need to check outside temp
+  //** temp loop code checks the time and decides if we need to check outside temp / wifi RSSI
   int secNow = Time.local() % 86400;  // whats the current second of the day
   int tSince = (secNow - tLast);
   if (tSince < 0)                      // correct for 24 hour time clock
@@ -148,6 +216,23 @@ void loop() {
   if (tSince >= 600 or tLast == -1)   // run every ten minutes or first boot
   {
     getOAT();
+    rssi = WiFi.RSSI();
+  }
+  
+  // check if light position is the same for 45 seconds for sync planning
+  int lightstatus = digitalRead(poollight);
+  int nowutc = Time.now(); // track if it has been on or off for at least 45 seconds
+  if (((nowutc - tlightchangedon) > 45) && lightstatus == LOW){
+    ontime45 = true; 
+  }
+  if ((nowutc - tlightchangedon) < 45){
+    ontime45 = false;
+  }
+  if (((nowutc - tlightchangedoff) > 45) && lightstatus == HIGH){
+    offtime45 = true;
+  }
+  if ((nowutc - tlightchangedoff) < 45) {
+    offtime45 = false;
   }
   
   // Valve loop Code checks for valve flags set from the cloud function and runs the appropriate function to avoid cloud response delays
@@ -169,38 +254,49 @@ void loop() {
   }
   
   // Pool Light Loop Code checks for valve flags set from the cloud function and runs the appropriate function to avoid cloud response delays
-  if (ccFlag == 1)
+  if (ccFlag == 1)  // color cycle button cycles one spot
   {
-    colorChange();
+    int next = (lightposition + 1);
+    if (next > 15){
+    next = 1;
+    }
+    colorChange(next);
   }
-  if (ccFlag == 2)
+  if (ccFlag == 2)  // red
   {
-    redLight();
+    colorChange(9);
   }
-  if (ccFlag == 3)
+  if (ccFlag == 3) // green
   {
-    greenLight();
+    colorChange(10);
   }
-  if (ccFlag == 4)
+  if (ccFlag == 4) // blue
   {
-    blueLight();
+    colorChange(11);
   }
-  if (ccFlag == 5)
+  if (ccFlag == 5) // yellow
   {
-    yellowLight();
+    colorChange(12);
   }
-  if (ccFlag == 6)
+  if (ccFlag == 6) // skyblue
   {
-    skyblueLight();
+    colorChange(13);
   }
-  if (ccFlag == 7)
+  if (ccFlag == 7) // magenta
   {
-    magentaLight();
+    colorChange(14);
   }
-  if (ccFlag == 8)
+  if (ccFlag == 8) // white
   {
-    whiteLight();
+    colorChange(15);
   }
+
+ // Auto mode selected flag to avoid cloud delays
+ if (autoFlag == true)
+ {
+    resumeschedule();
+ }
+
 }
 
 // get a temp reading from the probe
@@ -281,7 +377,9 @@ byte i;
   fahrenheit = celsius * 1.8 + 32.0;
   lastTemp = celsius;
   String oat = String(fahrenheit);
+  if (cloudconnected == true){
   Particle.publish("OAT", oat, PRIVATE);
+  }
   ioat = atoi(oat);
   tLast = Time.local() % 86400;
 }
@@ -289,7 +387,9 @@ byte i;
 void aeratorOn() {   // wont turn on without turning down pump to avoid damage to pipes and alerts smartthings to refresh
     if (pumpSetting >= 5){  
         SetSpeed("3");
+        if (cloudconnected == true){
         Particle.publish("wattchange", "true", PRIVATE);
+        }
         delay(5000); // give pump time to react before valves move
     }
     digitalWrite(aeratoronrelay, LOW);
@@ -363,230 +463,58 @@ void cleanersOn() {
 }
 
 
-// Pool Color Change
-void colorChange() {
-    ccFlag = 0;
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    Particle.publish("plight", "on", PRIVATE);
+// Pool color selection
+void colorChange(int desired){
+ccFlag = 0;
+int count = 0;
+int lightstatus = digitalRead(poollight);
+
+
+if ((desired - lightposition) >= 0)  // calculate cycles required to get there
+   {
+       changecycles = (desired - lightposition);
+   }
+else{
+       changecycles = ((16 - lightposition) + desired);
+   }
+
+if(ontime45 == true && lightstatus == LOW && weirdway == false){  // if the on time in one position has been greater than 45 seconds it has a different cycle
+    changecycles = desired - 6;
+    weirdway = false;
 }
 
-// Pool Red Light
-void redLight() {
-    ccFlag = 0;
-    int light = digitalRead(poollight); // check if its on if it is turn it off and wait to reset first
-    if (light == LOW) 
-    {
-        digitalWrite(poollight, HIGH);
-        delay(5000);
-    }
-    digitalWrite(poollight, HIGH);
-    delay(250);
+if (offtime45 == true && ontime45 == true && changecycles == 0 && lightstatus == HIGH){  // if its been on and off for the required time and same color is selected turning on once resumes color
     digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    Particle.publish("plight", "on", PRIVATE);
+    weirdway = true;
+}
+if (offtime45 == true && ontime45 == true && changecycles >= 1 && lightstatus == HIGH ){ // if its been on and off for the required time it changes the cycle schedule to get to desired light
+    changecycles = desired - 6;
+    weirdway = false;
+}
+if (weirdway == true && changecycles >= 1 && lightstatus == LOW){  // if it was turned on to the same color and then a different color is selected the cycles change
+    changecycles = desired - 6;
+    weirdway = false;
 }
 
-// Pool Green Light
-void greenLight() {
-    ccFlag = 0;
-    int light = digitalRead(poollight); // check if its on if it is turn it off and wait to reset first
-    if (light == LOW) 
-    {
-        digitalWrite(poollight, HIGH);
-        delay(5000);
+while (changecycles != count){  // loops to achieve the right color
+    digitalWrite(poollight, HIGH);
+    delay(delayamount);
+    digitalWrite(poollight, LOW);
+    count++;
+    delay(delayamount);
     }
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    Particle.publish("plight", "on", PRIVATE);
-}
+count = 0;
+changecycles = 0;
+lightposition = desired;
+ontime45 = false;
+offtime45 = false;
+tlightchangedon = Time.now();
+tlightchangedoff = Time.now();
 
-//Pool Blue Light
-void blueLight() {
-    ccFlag = 0;
-    int light = digitalRead(poollight); // check if its on if it is turn it off and wait to reset first
-    if (light == LOW) 
-    {
-        digitalWrite(poollight, HIGH);
-        delay(5000);
-    }
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    Particle.publish("plight", "on", PRIVATE);
-}
 
-// Pool Yellow Light
-void yellowLight() {
-    ccFlag = 0;
-    int light = digitalRead(poollight); // check if its on if it is turn it off and wait to reset first
-    if (light == LOW) 
-    {
-        digitalWrite(poollight, HIGH);
-        delay(5000);
-    }
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
+if (cloudconnected == true){     // tell smartthings the pool light is on
     Particle.publish("plight", "on", PRIVATE);
-}
-
-// Pool Skyblue Light
-void skyblueLight() {
-    ccFlag = 0;
-    int light = digitalRead(poollight); // check if its on if it is turn it off and wait to reset first
-    if (light == LOW) 
-    {
-        digitalWrite(poollight, HIGH);
-        delay(5000);
     }
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    Particle.publish("plight", "on", PRIVATE);
-}
-
-// Pool Magenta Light
-void magentaLight() {
-    ccFlag = 0;
-    int light = digitalRead(poollight); // check if its on if it is turn it off and wait to reset first
-    if (light == LOW) 
-    {
-        digitalWrite(poollight, HIGH);
-        delay(5000);
-    }
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    Particle.publish("plight", "on", PRIVATE);
-}
-
-// Pool White Light
-void whiteLight() {
-    ccFlag = 0;
-    int light = digitalRead(poollight); // check if its on if it is turn it off and wait to reset first
-    if (light == LOW) 
-    {
-        digitalWrite(poollight, HIGH);
-        delay(5000);
-    }
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    delay(250);
-    digitalWrite(poollight, HIGH);
-    delay(250);
-    digitalWrite(poollight, LOW);
-    Particle.publish("plight", "on", PRIVATE);
 }
 
 // runs if valve changes to update pump power use
@@ -637,7 +565,9 @@ void wattchange() {
         pumpPowerConsumption = 200;
         }
     }
-    Particle.publish("wattchange", "true", PRIVATE);  
+    if (cloudconnected == true){
+    Particle.publish("wattchange", "true", PRIVATE);
+    }
 }
 
 // Runs when called upon in loop to check for a regularly scheduled event such as pump speed changes valve changes and chemical pump changes at set times of the day
@@ -656,7 +586,7 @@ else {
 }
 
 int cursec = Time.local() % 86400;
-int Cpumpstate = digitalRead(chlorinerelay);
+char Cpumpstate = digitalRead(chlorinerelay);
 char Apumpstate = digitalRead(acidrelay);
 
 //
@@ -664,27 +594,68 @@ char Apumpstate = digitalRead(acidrelay);
 //
 
 // Addition 1 at 8:05 am
-if (Cpumpstate == HIGH && hour == 8 && minute == 5 && automode == true){
+if (Cpumpstate == HIGH && Apumpstate == LOW && hour == 8 && minute == 5 && automode == true && Cdailyruntime > 0){
+    if ( valveposition != 1 or pumpSpeed == 0 or pumpSpeed > 2000){
+      if (valveposition != 1){
+      mainsOn();
+      }
+      if (pumpSpeed == 0 or pumpSpeed > 2000){
+      SetSpeed("2");
+      }
+      if (cloudconnected == true){
+      Particle.publish("refresh", "true", PRIVATE);
+      }
+    }
     digitalWrite(chlorinerelay, LOW);
     secCoff = (cursec + (((Cdailyruntime * 60)) / 3));    // calculates the time to trigger shutoff assuming 3 additions to hit the daily value
+    if (cloudconnected == true){
     Particle.publish("chlorineon", "true", PRIVATE);
+    }
 }
 // Addition 2 at 2:30 pm
-if (Cpumpstate == HIGH && hour == 14 && minute == 30 && automode == true){
+if (Cpumpstate == HIGH && Apumpstate == LOW && hour == 14 && minute == 30 && automode == true && Cdailyruntime > 0){
+    if ( valveposition != 1 or pumpSpeed == 0 or pumpSpeed > 2000){
+      if (valveposition != 1){
+      mainsOn();
+      }
+      if (pumpSpeed == 0 or pumpSpeed > 2000){
+      SetSpeed("2");
+      }
+      if (cloudconnected == true){
+      Particle.publish("refresh", "true", PRIVATE);
+      }
+    }
     digitalWrite(chlorinerelay, LOW);
     secCoff = (cursec + (((Cdailyruntime * 60)) / 3));    // calculates the time to trigger shutoff assuming 3 additions to hit the daily value
+    if (cloudconnected == true){
     Particle.publish("chlorineon", "true", PRIVATE);
+    }
 }
 // Addition 3 at 10:00 pm
-if (Cpumpstate == HIGH && hour == 22 && minute == 0 && automode == true){
+if (Cpumpstate == HIGH && Apumpstate == LOW && hour == 22 && minute == 0 && automode == true && Cdailyruntime > 0){
+    if ( valveposition != 1 or pumpSpeed == 0 or pumpSpeed > 2000){
+      if (valveposition != 1){
+      mainsOn();
+      }
+      if (pumpSpeed == 0 or pumpSpeed > 2000){
+      SetSpeed("2");
+      }
+      if (cloudconnected == true){
+      Particle.publish("refresh", "true", PRIVATE);
+      }
+    }
     digitalWrite(chlorinerelay, LOW);
     secCoff = (cursec + (((Cdailyruntime * 60)) / 3));    // calculates the time to trigger shutoff assuming 3 additions to hit the daily value
+    if (cloudconnected == true){
     Particle.publish("chlorineon", "true", PRIVATE);
+    }
 }
 // Turns off chlorine relay after set time if it was turned on automatically
 if (Cpumpstate == LOW && cursec >= secCoff){
     digitalWrite(chlorinerelay, HIGH);
+    if (cloudconnected == true){
     Particle.publish("chlorineoff", "true", PRIVATE);
+    }
 }
 
 //
@@ -692,21 +663,49 @@ if (Cpumpstate == LOW && cursec >= secCoff){
 //
 
 // Addition 1 at 9:00 am
-if (Apumpstate == LOW && hour == 9 && minute == 0 && automode == true){
+if (Apumpstate == LOW && Cpumpstate == HIGH && hour == 9 && minute == 0 && automode == true && Adailyruntime > 0){
+    if ( valveposition != 1 or pumpSpeed == 0 or pumpSpeed > 2000){
+      if (valveposition != 1){
+      mainsOn();
+      }
+      if (pumpSpeed == 0 or pumpSpeed > 2000){
+      SetSpeed("2");
+      }
+      if (cloudconnected == true){
+      Particle.publish("refresh", "true", PRIVATE);
+      }
+    }
     digitalWrite(acidrelay, HIGH);
     secAoff = (cursec + (((Adailyruntime * 60)) / 2));    // calculates the time to trigger shutoff assuming 2 additions per day to hit the daily value
+    if (cloudconnected == true){
     Particle.publish("acidon", "true", PRIVATE);
+    }
 }
 // Addition 2 at 11:00 pm
-if (Apumpstate == LOW && hour == 23 && minute == 0 && automode == true){
+if (Apumpstate == LOW && Cpumpstate == HIGH && hour == 23 && minute == 0 && automode == true && Adailyruntime > 0){
+    if ( valveposition != 1 or pumpSpeed == 0 or pumpSpeed > 2000){
+      if (valveposition != 1){
+      mainsOn();
+      }
+      if (pumpSpeed == 0 or pumpSpeed > 2000){
+      SetSpeed("2");
+      }
+      if (cloudconnected == true){
+      Particle.publish("refresh", "true", PRIVATE);
+      }
+    }
     digitalWrite(acidrelay, HIGH);
     secAoff = (cursec + (((Adailyruntime * 60)) / 2));    // calculates the time to trigger shutoff assuming 2 additions per day to hit the daily value
+    if (cloudconnected == true){
     Particle.publish("acidon", "true", PRIVATE);
+    }
 }
 // Turns off acid relay after set time if it was turned on automatically
 if (Apumpstate == HIGH && cursec >= secAoff){
     digitalWrite(acidrelay, LOW);
+    if (cloudconnected == true){
     Particle.publish("acidoff", "true", PRIVATE);
+    }
 }
 
 
@@ -714,54 +713,74 @@ if (Apumpstate == HIGH && cursec >= secAoff){
 // pump and valve auto runs
 //
 
+//  6:30 am full speed and floor cleaners  setting 2
 
-//  6:30 am full speed and floor cleaners
 if (hour == 6 && minute == 30 && minutechange == true && automode == true){
     aeratorautorun = false;
     cleanersOn();
     SetSpeed("7");
+    if (cloudconnected == true){
     Particle.publish("refresh", "true", PRIVATE);
+    }
 }
 
-// 8 am 1500 rpm main returns
+// 8 am 1500 rpm main returns setting 3
+
 if (hour == 8 && minute == 0 && minutechange == true && automode == true){
     mainsOn();
     SetSpeed("2");
+    if (cloudconnected == true){
     Particle.publish("refresh", "true", PRIVATE);
+    }
 }
 
-// 3 pm off for peak
-if (hour == 15 && minute == 0 && minutechange == true && automode == true){
+// 3 pm off for peak except saturdays and sundays setting 4
+
+if (hour == 15 && minute == 0 && minutechange == true && automode == true && day != 1 && day != 7){
     SetSpeed("0");
+    if (cloudconnected == true){
     Particle.publish("refresh", "true", PRIVATE);
+    }
 }
 
-// 8 pm 1500 RPM
+// 8 pm 1500 RPM setting 5
+
 if (hour == 20 && minute == 0 && minutechange == true && automode == true){
+    mainsOn();
     SetSpeed("2");
+    if (cloudconnected == true){
     Particle.publish("refresh", "true", PRIVATE);
+    }
 }
 
-//  11:30 pm full speed and floor cleaners
+//  11:30 pm full speed and floor cleaners setting 6
+
 if (hour == 23 && minute == 30 && minutechange == true && automode == true){
     cleanersOn();
     SetSpeed("7");
+    if (cloudconnected == true){
     Particle.publish("refresh", "true", PRIVATE);
+    }
 }
 
-//  1:00 am 1500 rpm or 1750 and aerator depending on pool temp
+//  1:00 am 1500 rpm or 1750 and aerator depending on pool temp setting 1
+
 if (hour == 1 && minute == 0 && minutechange == true && automode == true){
     if (poolTemp < 86){ // dont run aerator if pool is cold
       mainsOn();
       SetSpeed("2");
+      if (cloudconnected == true){
       Particle.publish("refresh", "true", PRIVATE);
+      }
     }
     if (poolTemp >= 86){ // do run aerator if pool is warm
     SetSpeed("3");
     delay(5000); // give pump time to react before valves move
     aeratorOn();
     aeratorautorun = true;
+    if (cloudconnected == true){
     Particle.publish("refresh", "true", PRIVATE);
+    }
     }
 }
 
@@ -770,7 +789,9 @@ if (valveposition == 3 && poolTemp <= 84 && aeratorautorun == true){
     mainsOn();
     SetSpeed("2");
     aeratorautorun = false;
+    if (cloudconnected == true){
     Particle.publish("refresh", "true", PRIVATE);
+    }
 }
 
 //
@@ -783,6 +804,78 @@ daylasttimesync = day;
 }
 
 }
+
+// if auto mode changes to on this gets called and it determines where in the schedule you should be and resumes the schedule
+void resumeschedule() {
+autoFlag = false; // reset the flag to avoid it running every loop
+int checkT = Time.local() % 86400;
+if (checkT >= setting1 && checkT < setting2){  // check setting 1
+
+    if (poolTemp < 86){ // dont run aerator if pool is cold
+      mainsOn();
+      SetSpeed("2");
+      if (cloudconnected == true){
+      Particle.publish("refresh", "true", PRIVATE);
+      }
+    }
+    if (poolTemp >= 86){ // do run aerator if pool is warm
+    SetSpeed("3");
+    delay(5000); // give pump time to react before valves move
+    aeratorOn();
+    aeratorautorun = true;
+      if (cloudconnected == true){
+      Particle.publish("refresh", "true", PRIVATE);
+      }
+    }
+}
+
+if (checkT >= setting2 && checkT < setting3){   // check setting 2
+    aeratorautorun = false;
+    cleanersOn();
+    SetSpeed("7");
+    if (cloudconnected == true){
+    Particle.publish("refresh", "true", PRIVATE);
+    }
+}
+if (checkT >= setting3 && checkT < setting4){   // check setting 3
+    mainsOn();
+    SetSpeed("2");
+    if (cloudconnected == true){
+    Particle.publish("refresh", "true", PRIVATE);
+    }
+}
+if (checkT >= setting4 && checkT < setting5){   // check setting 4
+   
+    if (day !=1 && day != 7){
+    SetSpeed("0");
+      if (cloudconnected == true){
+      Particle.publish("refresh", "true", PRIVATE);
+      }
+    }
+    else {
+    mainsOn();
+    SetSpeed("2");
+      if (cloudconnected == true){
+      Particle.publish("refresh", "true", PRIVATE);
+      }
+    }
+}
+if (checkT >= setting5 && checkT < setting6){   // check setting 5
+    mainsOn();
+    SetSpeed("2");
+      if (cloudconnected == true){
+    Particle.publish("refresh", "true", PRIVATE);
+      }
+}
+if (checkT >= setting6 or checkT < setting1){   // check setting 6
+    cleanersOn();
+    SetSpeed("7");
+      if (cloudconnected == true){
+      Particle.publish("refresh", "true", PRIVATE);
+      }
+}
+}
+
 
 int SetSpeed(String command)
 {
@@ -934,6 +1027,10 @@ int light = digitalRead(poollight); // check state
     {
       if (light == HIGH){
       digitalWrite(poollight, LOW);
+      tlightchangedon = Time.now();
+      if (ontime45 == true){
+        weirdway = true;
+      }
       }
       if (light == LOW){
       }
@@ -945,6 +1042,8 @@ int light = digitalRead(poollight); // check state
     {
       if (light == LOW){
       digitalWrite(poollight, HIGH);
+      tlightchangedoff = Time.now();
+      weirdway = false;
       }
       if (light == HIGH){
       }
@@ -1101,6 +1200,7 @@ int automodefunc(String command)
     if (command == "1") 
     {   
       automode = true;
+      autoFlag = true;
       return 1;
     }
 // cloud trigger for auto mode off
@@ -1124,4 +1224,3 @@ void levelHandler(const char *event, const char *data)
 {
 poolLevel = atoi(data);
 }
-
